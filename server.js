@@ -5,6 +5,12 @@ const url = require('url');
 
 const PORT = Number(process.argv[2]) || Number(process.env.PORT) || 3200;
 const ROOT = process.env.ROOT || process.cwd();
+const DEBUG = process.argv.includes('--debug') || process.env.DEBUG === '1';
+function dlog() {
+  if (!DEBUG) return;
+  const args = Array.prototype.slice.call(arguments);
+  try { console.log(new Date().toISOString(), ...args); } catch { console.log.apply(console, args); }
+}
 
 function contentType(filePath) {
   switch (path.extname(filePath).toLowerCase()) {
@@ -42,14 +48,29 @@ function contentType(filePath) {
 }
 
 function safeResolve(p) {
-  const resolved = path.resolve(ROOT, p);
-  if (!resolved.startsWith(path.resolve(ROOT))) return null;
+  const base = path.resolve(ROOT);
+  const resolved = path.resolve(base, p);
+  const rel = path.relative(base, resolved);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
   return resolved;
 }
 
 const server = http.createServer((req, res) => {
   try {
     const parsed = url.parse(req.url, true);
+    if (req.method === 'GET' && parsed.pathname === '/__health') {
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' });
+      res.end('ok');
+      dlog(req.method, parsed.pathname, 200);
+      return;
+    }
+    if (req.method === 'GET' && parsed.pathname === '/__debug') {
+      const body = JSON.stringify({ port: PORT, root: ROOT, cwd: process.cwd(), pid: process.pid, now: new Date().toISOString() });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
+      res.end(body);
+      dlog(req.method, parsed.pathname, 200);
+      return;
+    }
     if (req.method === 'POST' && parsed.pathname === '/api/backup') {
       let chunks = [];
       req.on('data', (c) => chunks.push(c));
@@ -78,15 +99,18 @@ const server = http.createServer((req, res) => {
           res.setHeader('Content-Disposition', `attachment; filename="SPUDS-MMS-Backup-${ts}.zip"`);
           res.writeHead(200);
           res.end(zip);
+          dlog(req.method, parsed.pathname, 200, `${filename}.zip`);
         } catch {
           res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
           res.end('bad request');
+          dlog(req.method, parsed.pathname, 400);
         }
       });
       return;
     }
     let rel = decodeURIComponent(parsed.pathname || '/');
-    if (rel === '/') rel = '/index.html';
+    rel = rel.replace(/^\/+/, '');
+    if (rel === '') rel = 'index.html';
     const target = safeResolve(rel);
 
     let filePath = target;
@@ -103,18 +127,22 @@ const server = http.createServer((req, res) => {
       res.setHeader('Content-Type', contentType(filePath));
       res.writeHead(200);
       res.end(data);
+      dlog(req.method, parsed.pathname, 200, filePath);
     } else {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('404');
+      dlog(req.method, parsed.pathname, 404, rel);
     }
   } catch (e) {
     res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('500');
+    dlog('ERR', e && e.message ? e.message : String(e));
   }
 });
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Serving ${ROOT} on http://0.0.0.0:${PORT}/`);
+  dlog('debug', 'enabled');
 });
 
 function crcTable() {

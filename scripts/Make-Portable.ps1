@@ -1,10 +1,12 @@
 param(
   [int]$Port = 3200,
-  [string]$OutDir = "portable"
+  [string]$OutDir = "portable",
+  [string]$ZipName = "SPUDS-MMS-Deploy.zip"
 )
 $ErrorActionPreference = "Stop"
 $rootPath = (Get-Location).Path
 $absOut = Join-Path $rootPath $OutDir
+if (Test-Path $absOut) { Remove-Item $absOut -Recurse -Force }
 $www = Join-Path $absOut "www"
 New-Item -ItemType Directory -Force -Path $www | Out-Null
 $excludeDirs = @(".git",".trae","node_modules","dist","portable",".vscode")
@@ -53,7 +55,7 @@ if defined NODE (
 )
 endlocal
 "@
-Set-Content -Path (Join-Path $absOut "Start-IMS.cmd") -Encoding Ascii -Value $startCmd
+Set-Content -Path (Join-Path $absOut "Start-MMS.cmd") -Encoding Ascii -Value $startCmd
 
 $stopCmd = @"
 @echo off
@@ -67,27 +69,34 @@ for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq powershell.exe" /
 echo Stopped servers (if running).
 endlocal
 "@
-Set-Content -Path (Join-Path $absOut "Stop-IMS.cmd") -Encoding Ascii -Value $stopCmd
+Set-Content -Path (Join-Path $absOut "Stop-MMS.cmd") -Encoding Ascii -Value $stopCmd
 
 $restartCmd = @"
 @echo off
 setlocal
 set PORT=$Port
-call "%~dp0Stop-IMS.cmd"
-call "%~dp0Start-IMS.cmd" %PORT%
+call "%~dp0Stop-MMS.cmd"
+call "%~dp0Start-MMS.cmd" %PORT%
 endlocal
 "@
-Set-Content -Path (Join-Path $absOut "Restart-IMS.cmd") -Encoding Ascii -Value $restartCmd
+Set-Content -Path (Join-Path $absOut "Restart-MMS.cmd") -Encoding Ascii -Value $restartCmd
 $fwCmd = @"
 @echo off
 setlocal
 set PORT=$Port
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process PowerShell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command \"New-NetFirewallRule -DisplayName ''IMS-%PORT%'' -Direction Inbound -Action Allow -Protocol TCP -LocalPort %PORT% -Profile Private\"' -Verb RunAs"
-echo If prompted by UAC, approve to add firewall rule for port %PORT% (Private).
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process PowerShell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -Command \"New-NetFirewallRule -DisplayName ''MMS-%PORT%'' -Direction Inbound -Action Allow -Protocol TCP -LocalPort %PORT% -Profile Private\"' -Verb RunAs"
+echo If prompted by UAC, approve to add firewall rule for port %PORT% (Private, MMS).
 endlocal
 "@
 Set-Content -Path (Join-Path $absOut "Open-Firewall.cmd") -Encoding Ascii -Value $fwCmd
-$zipPath = Join-Path $rootPath "SPUDS-MMS-Deploy.zip"
+# Friendly aliases
+$aliasStart = "@echo off`r`ncall `"%~dp0Start-MMS.cmd`""
+$aliasStop = "@echo off`r`ncall `"%~dp0Stop-MMS.cmd`""
+$aliasRestart = "@echo off`r`ncall `"%~dp0Restart-MMS.cmd`""
+Set-Content -Path (Join-Path $absOut "start-portable.cmd") -Encoding Ascii -Value $aliasStart
+Set-Content -Path (Join-Path $absOut "stop-portable.cmd") -Encoding Ascii -Value $aliasStop
+Set-Content -Path (Join-Path $absOut "restart-portable.cmd") -Encoding Ascii -Value $aliasRestart
+$zipPath = Join-Path $rootPath $ZipName
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path (Join-Path $absOut "*") -DestinationPath $zipPath -Force
 Write-Host "Portable package created:" $zipPath

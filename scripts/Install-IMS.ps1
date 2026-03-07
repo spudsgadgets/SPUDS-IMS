@@ -42,7 +42,7 @@ if defined NODE (
 )
 endlocal
 "@
-Set-Content -Path (Join-Path $absOut "Start-IMS.cmd") -Encoding Ascii -Value $startCmd
+Set-Content -Path (Join-Path $absOut "Start-MMS.cmd") -Encoding Ascii -Value $startCmd
 
 $stopCmd = @"
 @echo off
@@ -56,7 +56,7 @@ for /f "tokens=2 delims=," %%P in ('tasklist /FI "IMAGENAME eq powershell.exe" /
 echo Stopped servers (if running).
 endlocal
 "@
-Set-Content -Path (Join-Path $absOut "Stop-IMS.cmd") -Encoding Ascii -Value $stopCmd
+Set-Content -Path (Join-Path $absOut "Stop-MMS.cmd") -Encoding Ascii -Value $stopCmd
 
 $restartCmd = @"
 @echo off
@@ -66,23 +66,23 @@ call "%~dp0Stop-IMS.cmd"
 call "%~dp0Start-IMS.cmd" %PORT%
 endlocal
 "@
-Set-Content -Path (Join-Path $absOut "Restart-IMS.cmd") -Encoding Ascii -Value $restartCmd
+Set-Content -Path (Join-Path $absOut "Restart-MMS.cmd") -Encoding Ascii -Value $restartCmd
 $shell = New-Object -ComObject WScript.Shell
 $desktop = [Environment]::GetFolderPath("Desktop")
 $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-$target = Join-Path $absOut "Start-IMS.cmd"
-$lnk1 = $shell.CreateShortcut((Join-Path $desktop "IMS.lnk"))
+$target = Join-Path $absOut "Start-MMS.cmd"
+$lnk1 = $shell.CreateShortcut((Join-Path $desktop "MMS.lnk"))
 $lnk1.TargetPath = $target
 $lnk1.WorkingDirectory = $absOut
 $lnk1.IconLocation = "$env:SystemRoot\System32\shell32.dll,44"
 $lnk1.Save()
-$lnk2 = $shell.CreateShortcut((Join-Path $startMenu "IMS.lnk"))
+$lnk2 = $shell.CreateShortcut((Join-Path $startMenu "MMS.lnk"))
 $lnk2.TargetPath = $target
 $lnk2.WorkingDirectory = $absOut
 $lnk2.IconLocation = "$env:SystemRoot\System32\shell32.dll,44"
 $lnk2.Save()
 if ($OpenFirewall) {
-  $fwCmd = "New-NetFirewallRule -DisplayName 'IMS-$Port' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Private"
+  $fwCmd = "New-NetFirewallRule -DisplayName 'MMS-$Port' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Private"
   try {
     Invoke-Expression $fwCmd
   } catch {
