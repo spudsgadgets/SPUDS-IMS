@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.zip
+portable/bin/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory Management System</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <nav class="topbar">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+          <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="4"></rect>
+            <path d="M7 12h10M12 7v10"></path>
+          </g>
+        </svg>
+        <span>IMS v1.0</span>
+      </div>
+      <button id="menu-toggle" class="icon-btn" aria-label="Toggle navigation">☰</button>
+      <ul class="nav-links">
+        <li><a href="#" data-module="vendor" class="active">Vendors</a></li>
+        <li><a href="#" data-module="po">Purchase Orders</a></li>
+        <li><a href="#" data-module="inventory">Inventory</a></li>
+        <li><a href="#" data-module="sales">Sales Orders</a></li>
+        <li><a href="#" data-module="customer">Customers</a></li>
+        <li><a href="#" data-module="settings">Settings</a></li>
+      </ul>
+      <div class="spacer"></div>
+      <div class="top-controls">
+        <input id="logo-file" type="file" accept="image/*" style="display:none">
+        <button id="mobile-mode" class="control-btn">Mobile Mode</button>
+        <button id="theme-toggle" class="control-btn">Light Mode</button>
+      </div>
+    </nav>
+    <main id="content" class="content">
+      <!-- Module content will be injected here -->
+    </main>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
