@@ -58,12 +58,6 @@ function safeResolve(p) {
 const server = http.createServer((req, res) => {
   try {
     const parsed = new URL(req.url, 'http://localhost');
-    if (req.method === 'GET' && parsed.pathname === '/__health') {
-      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' });
-      res.end('ok');
-      dlog(req.method, parsed.pathname, 200);
-      return;
-    }
     if (req.method === 'GET' && parsed.pathname === '/__debug') {
       const body = JSON.stringify({ port: PORT, root: ROOT, cwd: process.cwd(), pid: process.pid, now: new Date().toISOString() });
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
@@ -139,7 +133,6 @@ const server = http.createServer((req, res) => {
 <p><code>${ROOT}</code></p>
 <p>No <code>index.html</code> found. Place your app files under the folder above.</p>
 <ul>
-  <li><a href="/__health">Health</a></li>
   <li><a href="/__debug">Debug</a></li>
 </ul>`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
