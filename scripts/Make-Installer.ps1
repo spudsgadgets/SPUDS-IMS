@@ -17,7 +17,8 @@ New-Item -ItemType Directory -Force -Path $work | Out-Null
 $payloadRel = Join-Path "dist" "installer-work\payload"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\Make-Portable.ps1") -Port $Port -OutDir $payloadRel
 $payload = Join-Path $work "payload"
-Copy-Item -Force (Join-Path $root "scripts\Uninstall-IMS.ps1") (Join-Path $work "Uninstall-IMS.ps1")
+Copy-Item -Force (Join-Path $root "scripts\Uninstall-MMS.ps1") (Join-Path $work "Uninstall-MMS.ps1")
+Copy-Item -Force (Join-Path $root "scripts\Install-MMS.ps1") (Join-Path $work "Install-MMS.ps1")
 
 # Setup and Uninstall bootstrap CMDs
 $lanFlag = if ($Lan.IsPresent) { "-Lan" } else { "" }
@@ -53,7 +54,7 @@ Set-Content -Path (Join-Path $work "Setup.cmd") -Encoding Ascii -Value $setupCmd
 $uninstallCmd = @"
 @echo off
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Uninstall-IMS.ps1" -InstallDir "$InstallDir" -Port $Port
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Uninstall-MMS.ps1" -InstallDir "$InstallDir" -Port $Port
 echo Uninstalled SPUDS-MMS from $InstallDir
 endlocal
 "@
@@ -93,13 +94,13 @@ TargetName=$dist\SPUDS-MMS-Installer.exe
 SourceFiles0=$work
 
 [SourceFiles0]
-%SourceFiles0%= 
+%SourceFiles0%=
 
 [FileList]
 Setup.cmd=
 Uninstall.cmd=
-Install-IMS.ps1=
-Uninstall-IMS.ps1=
+Install-MMS.ps1=
+Uninstall-MMS.ps1=
 payload\*=
 "@
 $sedPath = Join-Path $work "build.sed"

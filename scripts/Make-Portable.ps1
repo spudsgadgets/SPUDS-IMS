@@ -89,6 +89,19 @@ echo If prompted by UAC, approve to add firewall rule for port %PORT% (Private, 
 endlocal
 "@
 Set-Content -Path (Join-Path $absOut "Open-Firewall.cmd") -Encoding Ascii -Value $fwCmd
+# Reserve URL ACL for LAN binding (optional, may require admin)
+$aclCmd = @"
+@echo off
+setlocal
+set PORT=$Port
+echo Reserving URL ACL for http://+:%PORT%/
+netsh http add urlacl url=http://+:%PORT%/ user=Everyone
+if %ERRORLEVEL% NEQ 0 (
+  echo If this failed, right-click and Run as administrator.
+)
+endlocal
+"@
+Set-Content -Path (Join-Path $absOut "Reserve-URL.cmd") -Encoding Ascii -Value $aclCmd
 # Friendly aliases
 $aliasStart = "@echo off`r`ncall `"%~dp0Start-MMS.cmd`""
 $aliasStop = "@echo off`r`ncall `"%~dp0Stop-MMS.cmd`""

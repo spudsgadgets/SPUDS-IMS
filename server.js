@@ -1,7 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const url = require('url');
+const { URL } = require('url');
 
 const PORT = Number(process.argv[2]) || Number(process.env.PORT) || 3200;
 const ROOT = process.env.ROOT || process.cwd();
@@ -57,7 +57,7 @@ function safeResolve(p) {
 
 const server = http.createServer((req, res) => {
   try {
-    const parsed = url.parse(req.url, true);
+    const parsed = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && parsed.pathname === '/__health') {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' });
       res.end('ok');
@@ -108,7 +108,8 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
-    let rel = decodeURIComponent(parsed.pathname || '/');
+    const originalPath = parsed.pathname || '/';
+    let rel = decodeURIComponent(originalPath);
     rel = rel.replace(/^\/+/, '');
     if (rel === '') rel = 'index.html';
     const target = safeResolve(rel);
@@ -128,6 +129,24 @@ const server = http.createServer((req, res) => {
       res.writeHead(200);
       res.end(data);
       dlog(req.method, parsed.pathname, 200, filePath);
+    } else if (originalPath === '/' || originalPath === '') {
+      const body = `<!doctype html>
+<meta charset="utf-8"/>
+<title>SPUDS-MMS Portable Server</title>
+<style>body{font:14px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px;max-width:720px;margin:auto;color:#222}code{background:#f3f3f3;padding:2px 6px;border-radius:4px}</style>
+<h1>SPUDS-MMS Portable Server</h1>
+<p>Server is running on port ${PORT} serving:</p>
+<p><code>${ROOT}</code></p>
+<p>No <code>index.html</code> found. Place your app files under the folder above.</p>
+<ul>
+  <li><a href="/__health">Health</a></li>
+  <li><a href="/__debug">Debug</a></li>
+</ul>`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.writeHead(200);
+      res.end(body);
+      dlog(req.method, parsed.pathname, 200, 'default-index');
     } else {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('404');
