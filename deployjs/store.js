@@ -1,8 +1,7 @@
-const names = ['vendor','po','inventory','sales','customer','ap','ar','products','bom']
+const names = ['vendor','po','inventory','sales','customer','products','bom']
 const Store = {
   data: {},
   schema: {},
-  maps: {},
   init() {
     names.forEach(n => {
       try {
@@ -15,12 +14,6 @@ const Store = {
         this.data[n] = []
       }
     })
-    try {
-      const m = localStorage.getItem('map_payables')
-      this.maps['payables'] = m ? JSON.parse(m) : {}
-    } catch {
-      this.maps['payables'] = {}
-    }
   },
   getSchema(n) { return this.schema[n] || [] },
   setSchema(n, s) {
@@ -36,11 +29,6 @@ const Store = {
     const arr = this.getData(n).slice()
     arr.push(obj)
     this.setData(n, arr)
-  },
-  getMap(n) { return this.maps[n] || {} },
-  setMap(n, m) {
-    this.maps[n] = m || {}
-    try { localStorage.setItem('map_'+n, JSON.stringify(this.maps[n])) } catch {}
   }
 }
 export default Store

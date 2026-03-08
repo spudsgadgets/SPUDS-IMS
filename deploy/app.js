@@ -6,10 +6,6 @@ import InventoryModule from './js/modules/inventory.js'
 import SalesModule from './js/modules/sales.js'
 import CustomerModule from './js/modules/customer.js'
 import SettingsModule from './js/modules/settings.js'
-import PayablesModule from './js/modules/payables.js'
-import APModule from './js/modules/ap.js'
-import ReceivablesModule from './js/modules/receivables.js'
-import ARModule from './js/modules/ar.js'
 import ProductsModule from './js/modules/products.js'
 import BOMModule from './js/modules/bom.js'
 import MaterialsModule from './js/modules/materials.js'
@@ -32,11 +28,7 @@ const modules = {
   materials: MaterialsModule,
   sales: SalesModule,
   customer: CustomerModule,
-  settings: SettingsModule,
-  payables: PayablesModule,
-  ap: APModule,
-  ar: ARModule,
-  receivables: ReceivablesModule
+  settings: SettingsModule
 }
 
 function applyTheme(t) {
