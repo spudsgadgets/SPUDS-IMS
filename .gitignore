@@ -6,3 +6,4 @@ dist/
 coverage/
 *.zip
 *.tar.gz
+local-mariadb/
