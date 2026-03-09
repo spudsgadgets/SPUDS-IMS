@@ -80,11 +80,16 @@
   <section id="section-settings" class="panel section">
     <h2>Settings</h2>
     <div class="row">
-      <input id="logo-url" placeholder="Logo URL (optional)">
-      <input id="logo-file" type="file" accept="image/*">
-      <button id="logo-set">Set Logo</button>
-      <button id="logo-clear">Remove Logo</button>
+      <button id="logo-select"><img id="logo-select-icon" class="logo-select-icon" alt=""><span id="logo-select-text">Select Logo</span></button>
+      <button id="logo-clear">Clear Logo</button>
     </div>
+    <hr>
+    <div class="row">
+      <button id="db-backup">Backup Database</button>
+      <input id="db-restore-file" type="file" accept=".sql">
+      <button id="db-restore">Restore Database</button>
+    </div>
+    <div id="db-restore-status" class="status"></div>
   </section>
 </main>
 <script type="module" src="./app.js"></script>
