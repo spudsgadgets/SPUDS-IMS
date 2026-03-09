@@ -61,7 +61,7 @@ if(url.pathname==='/api/health'){
   catch(e){ok(res,{ok:false,error:String(e&&e.message||e)})}
   return
 }
-if(url.pathname==='/api/backup'&&req.method==='GET'){
+if(url.pathname.replace(/\/+$/,'')==='/api/backup'&&(req.method==='GET'||req.method==='HEAD')){
   try{
     const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
     const cand=[path.join(__dirname,'mariadb','bin','mariadb-dump.exe'),path.join(__dirname,'mariadb','bin','mysqldump.exe'),'mariadb-dump.exe','mysqldump.exe']
@@ -70,6 +70,7 @@ if(url.pathname==='/api/backup'&&req.method==='GET'){
     const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--single-transaction','--quick','--routines','--events','--default-character-set=utf8mb4','--databases',cfg.database]
     if(cfg.password){args.unshift('--password='+cfg.password)}
     const ts=new Date();const pad=n=>String(n).padStart(2,'0');const fn=`${cfg.database}-${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.sql`
+    if(req.method==='HEAD'){res.writeHead(200,{'Content-Type':'application/sql','Content-Disposition':'attachment; filename="'+fn+'"'});res.end();return}
     execFile(dump,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
       if(err){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
       res.writeHead(200,{'Content-Type':'application/sql','Content-Disposition':'attachment; filename="'+fn+'"'});
