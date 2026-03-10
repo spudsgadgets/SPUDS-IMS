@@ -10,3 +10,4 @@ local-mariadb/
 mariadb/
 deploy-bundle*/
 backups/
+releases/
