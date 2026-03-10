@@ -61,7 +61,8 @@ if(url.pathname==='/api/health'){
   catch(e){ok(res,{ok:false,error:String(e&&e.message||e)})}
   return
 }
-if(url.pathname.replace(/\/+$/,'')==='/api/backup'&&(req.method==='GET'||req.method==='HEAD')){
+const p=url.pathname.replace(/\/+$/,'')
+if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.method==='HEAD')){
   try{
     const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
     const cand=[path.join(__dirname,'mariadb','bin','mariadb-dump.exe'),path.join(__dirname,'mariadb','bin','mysqldump.exe'),'mariadb-dump.exe','mysqldump.exe']
@@ -69,35 +70,64 @@ if(url.pathname.replace(/\/+$/,'')==='/api/backup'&&(req.method==='GET'||req.met
     if(!dump){bad(res,'dump tool not found');return}
     const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--single-transaction','--quick','--routines','--events','--default-character-set=utf8mb4','--databases',cfg.database]
     if(cfg.password){args.unshift('--password='+cfg.password)}
-    const ts=new Date();const pad=n=>String(n).padStart(2,'0');const fn=`${cfg.database}-${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.sql`
-    if(req.method==='HEAD'){res.writeHead(200,{'Content-Type':'application/sql','Content-Disposition':'attachment; filename="'+fn+'"'});res.end();return}
+    const ts=new Date();const pad=n=>String(n).padStart(2,'0');const base=`${cfg.database}-${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;const fnSql=base+'.sql';const fnZip=base+'.zip'
+    if(req.method==='HEAD'){res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="'+fnZip+'"'});res.end();return}
     execFile(dump,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
       if(err){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
-      res.writeHead(200,{'Content-Type':'application/sql','Content-Disposition':'attachment; filename="'+fn+'"'});
-      res.end(stdout)
+      const tmpSql=path.join(os.tmpdir(),'spuds-backup-'+Date.now()+'.sql')
+      writeFile(tmpSql,stdout,'utf8').then(()=>{
+        const tmpZip=path.join(os.tmpdir(),'spuds-backup-'+Date.now()+'.zip')
+        const cmd='Compress-Archive -Path \"'+tmpSql.replace(/\\/g,'/')+'\" -DestinationPath \"'+tmpZip.replace(/\\/g,'/')+'\" -Force'
+        execFile('powershell.exe',['-NoProfile','-Command',cmd],{windowsHide:true},(perr,pout,perrStr)=>{
+          try{require('fs').unlinkSync(tmpSql)}catch{}
+          if(perr){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(perr&&perr.message||perr),detail:perrStr}));return}
+          readFile(tmpZip).then(data=>{
+            res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename=\"'+fnZip+'\"'})
+            res.end(data)
+            try{require('fs').unlinkSync(tmpZip)}catch{}
+          }).catch(e=>{res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))})
+        })
+      }).catch(e=>{res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))})
     })
   }catch(e){json(res,500,{error:String(e&&e.message||e)})}
   return
 }
 if(url.pathname==='/api/restore'&&req.method==='POST'){
-  let body='';req.on('data',ch=>{body+=ch});req.on('end',async()=>{
+  const chunks=[];req.on('data',ch=>{chunks.push(ch)});req.on('end',async()=>{
     try{
-      if(!body)return bad(res,'empty');
+      if(!chunks.length)return bad(res,'empty');
+      const buf=Buffer.concat(chunks);
+      const isZip=buf.length>=4&&buf[0]===0x50&&buf[1]===0x4b&&buf[2]===0x03&&buf[3]===0x04
       const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
       const cand=[path.join(__dirname,'mariadb','bin','mariadb.exe'),path.join(__dirname,'mariadb','bin','mysql.exe'),'mariadb.exe','mysql.exe']
       let mysqlExe=null;for(const p of cand){try{await stat(p);mysqlExe=p;break}catch{}}
       if(!mysqlExe){bad(res,'mysql client not found');return}
-      const tmp=path.join(os.tmpdir(),`spuds-restore-${Date.now()}.sql`)
-      await writeFile(tmp,body,'utf8')
-      const src=tmp.replace(/\\\\/g,'/').replace(/\\/g,'/')
-      const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user]
-      if(cfg.password){args.unshift('--password='+cfg.password)}
-      args.push('--execute=source "'+src+'"')
-      execFile(mysqlExe,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
-        try{require('fs').unlinkSync(tmp)}catch{}
-        if(err){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
-        ok(res,{ok:true})
-      })
+      if(isZip){
+        const zipPath=path.join(os.tmpdir(),'spuds-restore-'+Date.now()+'.zip')
+        await writeFile(zipPath,buf)
+        const dest=path.join(os.tmpdir(),'spuds-restore-dir-'+Date.now())
+        const cmd='Expand-Archive -Path \"'+zipPath.replace(/\\/g,'/')+'\" -DestinationPath \"'+dest.replace(/\\/g,'/')+'\" -Force'
+        await new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-Command',cmd],{windowsHide:true},(e)=>e?reject(e):resolve()))
+        let files=await readdir(dest);const sqlFile=files.find(f=>/\.sql$/i.test(f))
+        if(!sqlFile){bad(res,'no .sql in zip');try{require('fs').unlinkSync(zipPath)}catch{};return}
+        const src=path.join(dest,sqlFile).replace(/\\\\/g,'/').replace(/\\/g,'/')
+        const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user];if(cfg.password){args.unshift('--password='+cfg.password)};args.push('--execute=source "'+src+'"')
+        execFile(mysqlExe,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
+          try{require('fs').unlinkSync(zipPath)}catch{};try{require('fs').unlinkSync(path.join(dest,sqlFile))}catch{}
+          if(err){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
+          ok(res,{ok:true})
+        })
+      }else{
+        const tmp=path.join(os.tmpdir(),`spuds-restore-${Date.now()}.sql`)
+        await writeFile(tmp,buf.toString('utf8'),'utf8')
+        const src=tmp.replace(/\\\\/g,'/').replace(/\\/g,'/')
+        const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user];if(cfg.password){args.unshift('--password='+cfg.password)};args.push('--execute=source "'+src+'"')
+        execFile(mysqlExe,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
+          try{require('fs').unlinkSync(tmp)}catch{}
+          if(err){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
+          ok(res,{ok:true})
+        })
+      }
     }catch(e){json(res,500,{error:String(e&&e.message||e)})}
   })
   return
