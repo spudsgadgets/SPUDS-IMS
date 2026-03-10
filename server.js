@@ -65,28 +65,39 @@ const p=url.pathname.replace(/\/+$/,'')
 if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.method==='HEAD')){
   try{
     const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
-    const cand=[path.join(__dirname,'mariadb','bin','mariadb-dump.exe'),path.join(__dirname,'mariadb','bin','mysqldump.exe'),'mariadb-dump.exe','mysqldump.exe']
-    let dump=null;for(const p of cand){try{await stat(p);dump=p;break}catch{}}
-    if(!dump){bad(res,'dump tool not found');return}
-    const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--single-transaction','--quick','--routines','--events','--default-character-set=utf8mb4','--databases',cfg.database]
-    if(cfg.password){args.unshift('--password='+cfg.password)}
+    const charsetDir=path.join(__dirname,'mariadb','share','charsets')
+    const candRaw=[path.join(__dirname,'mariadb','bin','mysqldump.exe'),path.join(__dirname,'mariadb','bin','mariadb-dump.exe'),'mysqldump.exe','mariadb-dump.exe']
+    const cand=[];for(const p of candRaw){try{await stat(p);cand.push(p)}catch{}}
+    if(!cand.length){bad(res,'dump tool not found');return}
+    const baseArgs=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--single-transaction','--quick','--routines','--events','--default-character-set=utf8mb4','--databases',cfg.database]
+    if(cfg.password){baseArgs.unshift('--password='+cfg.password)}
+    try{await stat(charsetDir);baseArgs.push('--character-sets-dir='+charsetDir.replace(/\\/g,'/'))}catch{}
+    async function runDump(tool){
+      return await new Promise((resolve,reject)=>{
+        execFile(tool,baseArgs,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
+          if(err){reject(new Error('['+tool+'] '+String(err&&err.message||err)+' :: '+stderr));return}
+          resolve(stdout)
+        })
+      })
+    }
     const ts=new Date();const pad=n=>String(n).padStart(2,'0');const base=`${cfg.database}-${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;const fnSql=base+'.sql';const fnZip=base+'.zip'
     if(req.method==='HEAD'){res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="'+fnZip+'"'});res.end();return}
-    execFile(dump,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
-      if(err){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
-      const tmpSql=path.join(os.tmpdir(),'spuds-backup-'+Date.now()+'.sql')
-      writeFile(tmpSql,stdout,'utf8').then(()=>{
-        const tmpZip=path.join(os.tmpdir(),'spuds-backup-'+Date.now()+'.zip')
-        const cmd='Compress-Archive -Path \"'+tmpSql.replace(/\\/g,'/')+'\" -DestinationPath \"'+tmpZip.replace(/\\/g,'/')+'\" -Force'
-        execFile('powershell.exe',['-NoProfile','-Command',cmd],{windowsHide:true},(perr,pout,perrStr)=>{
-          try{require('fs').unlinkSync(tmpSql)}catch{}
-          if(perr){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(perr&&perr.message||perr),detail:perrStr}));return}
-          readFile(tmpZip).then(data=>{
-            res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename=\"'+fnZip+'\"'})
-            res.end(data)
-            try{require('fs').unlinkSync(tmpZip)}catch{}
-          }).catch(e=>{res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))})
-        })
+    let dumpOut=null;let lastErr=null
+    for(const tool of cand){
+      try{dumpOut=await runDump(tool);lastErr=null;break}catch(e){lastErr=e}
+    }
+    if(!dumpOut){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(lastErr&&lastErr.message||lastErr)}));return}
+    const tmpSql=path.join(os.tmpdir(),'spuds-backup-'+Date.now()+'.sql')
+    await writeFile(tmpSql,dumpOut,'utf8')
+    const tmpZip=path.join(os.tmpdir(),'spuds-backup-'+Date.now()+'.zip')
+    const cmd='Compress-Archive -Path \"'+tmpSql.replace(/\\/g,'/')+'\" -DestinationPath \"'+tmpZip.replace(/\\/g,'/')+'\" -Force'
+    execFile('powershell.exe',['-NoProfile','-Command',cmd],{windowsHide:true},(perr,pout,perrStr)=>{
+      try{require('fs').unlinkSync(tmpSql)}catch{}
+      if(perr){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(perr&&perr.message||perr),detail:perrStr}));return}
+      readFile(tmpZip).then(data=>{
+        res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename=\"'+fnZip+'\"'})
+        res.end(data)
+        try{require('fs').unlinkSync(tmpZip)}catch{}
       }).catch(e=>{res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))})
     })
   }catch(e){json(res,500,{error:String(e&&e.message||e)})}
