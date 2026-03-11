@@ -48,7 +48,15 @@ if(-not (Test-IsAdmin)){
   Write-Warning "Firewall rules may not be added without Administrator rights. If remote access fails, run Start-IMS.cmd as Administrator."
 }
 Write-Host "Starting Node app on port $ApiPort (listening on all interfaces)..."
-Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `$env:MYSQL_PORT='$DbPort'; `$env:PORT='$ApiPort'; node server.js" -WorkingDirectory $root
+try{
+  $nodeCmd = Get-Command -Name node -ErrorAction SilentlyContinue
+  $localNode = Join-Path $root "node\node.exe"
+  $nodeCall = $null
+  if($nodeCmd){ $nodeCall = "node" }
+  elseif(Test-Path $localNode){ $nodeCall = ('"{0}"' -f $localNode) }
+  if(-not $nodeCall){ Write-Error "Node.js runtime not found. Install Node or place node\\node.exe in the IMS folder."; exit 1 }
+  Start-Process -FilePath "powershell" -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -Command `$env:MYSQL_PORT='{0}'; `$env:PORT='{1}'; {2} server.js" -f $DbPort,$ApiPort,$nodeCall) -WorkingDirectory $root
+}catch{ Write-Error ("Node start failed: {0}" -f $_); exit 1 }
 try{
   $ips = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' -and -not $_.IPAddress.StartsWith('169.254.') } | Select-Object -ExpandProperty IPAddress -ErrorAction SilentlyContinue
   if($ips){

@@ -31,6 +31,23 @@ foreach($item in $items){
     Copy-Item -Force -LiteralPath $item.FullName -Destination $dest
   }
 }
+try{
+  $nodeExe = Join-Path $bundle "node\node.exe"
+  if(-not (Test-Path $nodeExe)){
+    $nodeDir = Join-Path $bundle "node"
+    if(-not (Test-Path $nodeDir)){ New-Item -ItemType Directory -Path $nodeDir | Out-Null }
+    $ver = "20.11.1"; $arch = "x64"
+    $zipUrl = ("https://nodejs.org/dist/v{0}/node-v{0}-win-{1}.zip" -f $ver,$arch)
+    $tmpZip = Join-Path ([System.IO.Path]::GetTempPath()) ("node-" + $ver + "-" + $arch + "-" + [guid]::NewGuid().ToString() + ".zip")
+    Invoke-WebRequest -UseBasicParsing -Uri $zipUrl -OutFile $tmpZip -TimeoutSec 60
+    $tmpExtract = Join-Path ([System.IO.Path]::GetTempPath()) ("node-extract-" + [guid]::NewGuid().ToString())
+    New-Item -ItemType Directory -Path $tmpExtract | Out-Null
+    Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
+    $ex = Get-ChildItem -Path $tmpExtract -Directory | Where-Object { $_.Name -like ("node-v{0}*" -f $ver) } | Select-Object -First 1
+    if($ex){ $exe = Join-Path $ex.FullName "node.exe"; if(Test-Path $exe){ Copy-Item -Force $exe $nodeExe } }
+    try{ Remove-Item -Force $tmpZip }catch{}; try{ Remove-Item -Recurse -Force $tmpExtract }catch{}
+  }
+}catch{}
 # ensure version is stamped into UI
 try{
   $idx = Join-Path $bundle "public\index.html"
