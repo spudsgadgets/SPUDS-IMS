@@ -3,11 +3,15 @@ param(
 )
 $ErrorActionPreference = "Stop"
 try{
-  $procs = Get-Process -Name "mysqld" -ErrorAction SilentlyContinue
-  if(-not $procs){Write-Host "No mysqld process found.";exit 0}
+  $names = @("mysqld","mariadbd")
+  $procs = @()
+  foreach($n in $names){
+    $p = Get-Process -Name $n -ErrorAction SilentlyContinue
+    if($p){ $procs += $p }
+  }
+  if(-not $procs -or $procs.Count -eq 0){ Write-Host "No MariaDB/mysqld process found."; exit 0 }
   $procs | Stop-Process -Force
-  Write-Host "Stopped mysqld processes."
+  Write-Host "Stopped MariaDB/mysqld processes."
 }catch{
-  Write-Warning "Failed to stop mysqld: $_"
+  Write-Warning "Failed to stop MariaDB/mysqld: $_"
 }
-
