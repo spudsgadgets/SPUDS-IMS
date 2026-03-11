@@ -32,7 +32,7 @@ function Ensure-FirewallRule($name,$port){
       Write-Host "Opened Windows Firewall for TCP $port ($name)"
     }
   }catch{
-    Write-Warning "Could not add firewall rule for port $port: $_"
+    Write-Warning ("Could not add firewall rule for port {0}: {1}" -f $port, $_)
   }
 }
 Ensure-FirewallRule -name "SPUDS IMS API $ApiPort" -port $ApiPort

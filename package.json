@@ -1,11 +1,13 @@
 {
   "name": "spuds-ims",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "release:tag": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\\\tag-release.ps1",
+    "release:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\\\build-deploy.ps1 -Publish"
   },
   "dependencies": {
     "mysql2": "^3.9.0"

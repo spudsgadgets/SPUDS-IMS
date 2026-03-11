@@ -1,0 +1,20 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build deploy ZIP
+        shell: pwsh
+        run: ./scripts/build-deploy.ps1
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: releases/SPUDS-IMS-Deploy-*.zip
+          generate_release_notes: true
