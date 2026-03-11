@@ -31,6 +31,21 @@ foreach($item in $items){
     Copy-Item -Force -LiteralPath $item.FullName -Destination $dest
   }
 }
+# ensure version is stamped into UI
+try{
+  $idx = Join-Path $bundle "public\index.html"
+  if(Test-Path $idx){
+    $html = Get-Content -Raw -LiteralPath $idx -Encoding UTF8
+    # title: replace IMS or IMS vX => IMS v<package>
+    $html = [regex]::Replace($html,'(?<=<title>\s*)IMS(?: v[0-9][^<]*)?(?=\s*</title>)',("IMS v{0}" -f $pkgVer))
+    # brand: replace IMS or IMS vX inside brand-name span
+    $html = [regex]::Replace($html,'(?<=class="brand-name">)IMS(?: v[0-9][^<]*)?',("IMS v{0}" -f $pkgVer))
+    Set-Content -LiteralPath $idx -Encoding UTF8 -Value $html
+    Write-Host ("Stamped UI version: v{0}" -f $pkgVer)
+  }
+}catch{
+  Write-Warning ("Could not stamp version into index.html: {0}" -f $_)
+}
 # remove nested git folders
 Get-ChildItem -Path $bundle -Recurse -Force -Directory -Filter ".git" | ForEach-Object { Remove-Item -Recurse -Force $_.FullName }
 # write release metadata inside bundle

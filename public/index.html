@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Inventory Manager</title>
+<title>IMS v2.0.1</title>
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><img id="brand-logo" class="brand-logo" alt=""> <span class="brand-name">Inventory Manager</span></div>
+  <div class="brand"><img id="brand-logo" class="brand-logo" alt=""> <span class="brand-name">IMS v2.0.1</span></div>
   <nav class="main-nav">
     <a class="nav-btn active" data-section="dashboard" href="#section-dashboard">Dashboard</a>
     <a class="nav-btn" data-section="vendor" href="#section-vendor">Vendor</a>
@@ -46,36 +46,492 @@
     </div>
   </section>
   <section id="section-vendor" class="panel section">
-    <h2>Vendor</h2>
-    <div id="tbl-vendor" class="table-host"></div>
+    <div class="vendor-toolbar">
+      <div class="vendor-title">Vendor</div>
+      <div class="vendor-actions">
+        <button class="btn">New</button>
+        <button class="btn">Save</button>
+        <button class="btn">Copy</button>
+        <button class="btn">Version</button>
+        <button class="btn">Deactivate</button>
+        <button class="btn">Attachment</button>
+        <button id="vendor-import" class="btn">Import From PO</button>
+        <button class="btn">Close</button>
+      </div>
+    </div>
+    <div class="vendor-wrap">
+      <aside class="vendor-search">
+        <div class="search-header">Search</div>
+        <label>Name<input id="vendor-q-name" class="inp" placeholder=""></label>
+        <label>Contact<input id="vendor-q-contact" class="inp" placeholder=""></label>
+        <label>Phone<input id="vendor-q-phone" class="inp" placeholder=""></label>
+        <button id="vendor-refresh" class="btn btn-small">Refresh</button>
+        <div class="vendor-list" id="vendor-list"></div>
+        <div class="vendor-count" id="vendor-count"></div>
+      </aside>
+      <section class="vendor-detail">
+        <div class="grid two-col">
+          <div>
+            <div class="section-title">Basic</div>
+            <label>Name<input id="v-name" class="inp" data-cols="Name,Vendor,Company"></label>
+            <label>Balance<input id="v-balance" class="inp" data-cols="Balance,OpeningBalance" readonly></label>
+          </div>
+          <div>
+            <div class="section-title">Addresses</div>
+            <select id="v-address-type" class="inp">
+              <option>Business Address</option>
+            </select>
+            <textarea id="v-address" class="inp" rows="5" data-cols="Address,BusinessAddress,Address1"></textarea>
+          </div>
+        </div>
+        <div class="grid three-col">
+          <div>
+            <div class="section-title">Contact</div>
+            <label>Name<input id="v-contact" class="inp" data-cols="Contact,ContactName,Attn"></label>
+            <label>Phone<input id="v-phone" class="inp" data-cols="Phone,Telephone,Mobile"></label>
+            <label>Fax<input id="v-fax" class="inp" data-cols="Fax"></label>
+            <label>Email<input id="v-email" class="inp" data-cols="Email"></label>
+            <label>Website<input id="v-website" class="inp" data-cols="Website,URL"></label>
+          </div>
+          <div>
+            <div class="section-title">Purchasing Info</div>
+            <label>Payment Terms<input id="v-terms" class="inp" data-cols="PaymentTerms,Terms"></label>
+            <label>Taxing Scheme<input id="v-tax" class="inp" data-cols="TaxingScheme,TaxCode"></label>
+            <label>Carrier<input id="v-carrier" class="inp" data-cols="Carrier,ShippingCarrier"></label>
+            <label>Currency<input id="v-currency" class="inp" data-cols="Currency"></label>
+          </div>
+          <div>
+            <div class="section-title">Remarks</div>
+            <textarea id="v-remarks" class="inp" rows="8" data-cols="Remarks,Notes,Comment"></textarea>
+          </div>
+        </div>
+        <div class="vendor-tabs">
+          <button class="tab active" data-tab="info">Vendor Info</button>
+          <button class="tab" data-tab="products">Vendor Products</button>
+          <button class="tab" data-tab="orders">Order History</button>
+        </div>
+        <div class="vendor-tabpanes">
+          <div id="vendor-tab-info" class="tabpane active">
+            <div class="kv" id="vendor-kv"></div>
+          </div>
+          <div id="vendor-tab-products" class="tabpane">
+            <div id="vendor-products" class="table-host"></div>
+          </div>
+          <div id="vendor-tab-orders" class="tabpane">
+            <div id="vendor-orders" class="table-host"></div>
+          </div>
+        </div>
+      </section>
+    </div>
   </section>
   <section id="section-purchase-order" class="panel section">
-    <h2>Purchase Order</h2>
-    <div id="tbl-po" class="table-host"></div>
+    <div class="vendor-toolbar">
+      <div class="vendor-title">Purchase Order</div>
+      <div class="vendor-actions">
+        <button class="btn">New</button>
+        <button class="btn">Save</button>
+        <button class="btn">Print</button>
+        <button class="btn">Copy</button>
+        <button class="btn">Version</button>
+        <button class="btn">Attachment</button>
+        <button class="btn">Sticky</button>
+        <button class="btn">Close</button>
+      </div>
+    </div>
+    <div class="vendor-wrap">
+      <aside class="vendor-search">
+        <div class="search-header">Search</div>
+        <label>Order #<input id="po-q-num" class="inp" placeholder=""></label>
+        <label>Status<select id="po-q-status" class="inp"><option value="">Any</option></select></label>
+        <label>Vendor<select id="po-q-vendor" class="inp"><option value="">Any</option></select></label>
+        <label>Date From<input id="po-q-from" class="inp" type="date"></label>
+        <label>Date To<input id="po-q-to" class="inp" type="date"></label>
+        <button id="po-refresh" class="btn btn-small">Refresh</button>
+        <div class="vendor-list" id="po-list"></div>
+        <div class="vendor-count" id="po-count"></div>
+      </aside>
+      <section class="vendor-detail">
+        <div class="grid two-col">
+          <div>
+            <div class="section-title">Vendor</div>
+            <label>Vendor<input id="po-vendor" class="inp" data-cols="Vendor,VendorName,Supplier,Company,Name"></label>
+            <label>Contact<input id="po-contact" class="inp" data-cols="Contact,ContactName,Attn"></label>
+            <label>Phone<input id="po-phone" class="inp" data-cols="Phone,Telephone,Mobile"></label>
+            <label>Vendor Address<textarea id="po-vendor-address" class="inp" rows="4" data-cols="VendorAddress,Address"></textarea></label>
+          </div>
+          <div>
+            <div class="section-title">Order</div>
+            <label>Order #<input id="po-number" class="inp" data-cols="OrderNo,OrderNumber,PO,PurchaseOrderNo,DocumentNo"></label>
+            <label>Date<input id="po-date" class="inp" data-cols="Date,OrderDate"></label>
+            <label>Status<input id="po-status" class="inp" data-cols="Status"></label>
+            <label>Ship-To Address<textarea id="po-shipto" class="inp" rows="4" data-cols="ShipTo,ShipToAddress,ShipToAddr"></textarea></label>
+          </div>
+        </div>
+        <div class="section-title">Items</div>
+        <div class="row">
+          <button id="po-item-add" class="btn btn-small">Add Row</button>
+          <button id="po-item-del" class="btn btn-small">Delete Row</button>
+        </div>
+        <div id="po-items" class="table-host"></div>
+        <div class="vendor-tabs">
+          <button class="tab active" data-tab="purchasing">Purchasing</button>
+          <button class="tab" data-tab="advanced">Advanced</button>
+        </div>
+        <div class="vendor-tabpanes">
+          <div id="po-tab-purchasing" class="tabpane active">
+        <div class="grid three-col">
+          <div>
+            <div class="section-title">Terms & Dates</div>
+            <label>Terms<input id="po-terms" class="inp" data-cols="Terms,PaymentTerms"></label>
+            <label>Due Date<input id="po-due" class="inp" data-cols="DueDate"></label>
+            <label>Req. Ship Date<input id="po-req-ship" class="inp" data-cols="RequiredShipDate,ReqShipDate"></label>
+            <label>Remarks<textarea id="po-remarks" class="inp" rows="4" data-cols="Remarks,Notes,Comment"></textarea></label>
+          </div>
+          <div>
+            <div class="section-title">Tax & Currency</div>
+            <label>Taxing Scheme<input id="po-tax" class="inp" data-cols="TaxingScheme,TaxCode,Tax"></label>
+            <label>Non-Vendor Costs<input id="po-nonvendor" class="inp" data-cols="NonVendorCosts,ExtraCosts"></label>
+            <label>Currency<input id="po-currency" class="inp" data-cols="Currency"></label>
+          </div>
+          <div>
+            <div class="section-title">Totals</div>
+            <label>Sub-Total<input id="po-subtotal" class="inp" data-cols="SubTotal,Subtotal" readonly></label>
+            <label>Freight<input id="po-freight" class="inp" data-cols="Freight,Shipping" readonly></label>
+            <label>Total<input id="po-total" class="inp" data-cols="Total,GrandTotal" readonly></label>
+            <label>Paid<input id="po-paid" class="inp" data-cols="Paid" readonly></label>
+            <label>Balance<input id="po-balance" class="inp" data-cols="Balance" readonly></label>
+            <button class="btn" style="margin-top:8px">Receive &amp; Pay</button>
+          </div>
+        </div>
+          </div>
+          <div id="po-tab-advanced" class="tabpane"><div class="status">No advanced fields yet</div></div>
+        </div>
+      </section>
+    </div>
   </section>
   <section id="section-inventory" class="panel section">
-    <h2>Inventory</h2>
-    <div class="row">
-      <input id="table" placeholder="table name (e.g. inventory)">
-      <input id="file" type="file" accept=".csv">
-      <button id="import">Import</button>
+    <div class="vendor-toolbar">
+      <div class="vendor-title">Product</div>
+      <div class="vendor-actions">
+        <button class="btn">New</button>
+        <button id="inv-save" class="btn">Save</button>
+        <button class="btn">Copy</button>
+        <button class="btn">Version</button>
+        <button class="btn">Deactivate</button>
+        <button class="btn">Attachment</button>
+        <button class="btn">Close</button>
+      </div>
     </div>
-    <div id="import-status" class="status"></div>
-    <hr>
-    <div class="row">
-      <input id="browse-table" placeholder="table to browse">
-      <button id="load">Load</button>
+    <div class="vendor-wrap">
+      <aside class="vendor-search">
+        <div class="search-header">Search</div>
+        <label>Name/Code<input id="inv-q-code" class="inp" placeholder=""></label>
+        <label>Description<input id="inv-q-desc" class="inp" placeholder=""></label>
+        <label>Category<input id="inv-q-cat" class="inp" placeholder=""></label>
+        <button id="inv-refresh" class="btn btn-small">Refresh</button>
+        <div class="vendor-list" id="inv-list"></div>
+        <div class="vendor-count" id="inv-count"></div>
+      </aside>
+      <section class="vendor-detail">
+        <div class="grid two-col">
+          <div>
+            <div class="section-title">Basic</div>
+            <label>Item Name/Code<input id="inv-name" class="inp" data-cols="Name,ItemName,Item,Code,ItemCode,SKU"></label>
+            <label>Category<input id="inv-category" class="inp" data-cols="Category"></label>
+            <label>Type<select id="inv-type" class="inp" data-cols="Type,ItemType"><option>Stockable</option><option>Non-stock</option><option>Service</option></select></label>
+            <label>Description<textarea id="inv-description" class="inp" rows="4" data-cols="Description,ItemDescription"></textarea></label>
+          </div>
+          <div>
+            <div class="section-title">Picture</div>
+            <div style="border:1px solid var(--border);background:var(--card);height:140px;border-radius:6px;display:flex;align-items:center;justify-content:center;">
+              <img id="inv-pic-preview" alt="" style="max-height:136px;max-width:100%;display:none">
+              <div id="inv-pic-empty" class="muted">No picture</div>
+            </div>
+            <div class="row" style="margin-top:6px">
+              <button id="inv-pic-browse" class="btn btn-small">Browse</button>
+              <button id="inv-pic-clear" class="btn btn-small">Clear</button>
+            </div>
+            <div class="section-title" style="margin-top:12px">Costing Info</div>
+            <label>Costing Method<select id="inv-cost-method" class="inp" data-cols="CostingMethod"><option>Moving Average</option><option>FIFO</option><option>LIFO</option></select></label>
+            <div class="row"><button id="inv-cost-history" class="btn btn-small">Edit / History</button></div>
+          </div>
+        </div>
+        <div class="grid three-col">
+          <div>
+            <div class="section-title">Sales Info</div>
+            <label>Tax Code<input id="inv-tax-code" class="inp" data-cols="TaxCode,TaxingScheme,TaxGroup"></label>
+            <label>CASH<input id="inv-cash" class="inp" data-cols="Price,UnitPrice,SalesPrice"></label>
+            <label>ACCOUNT<input id="inv-account" class="inp" data-cols="Account"></label>
+            <label>CHECK<input id="inv-check" class="inp" data-cols="Check"></label>
+            <div class="status"><a href="#" id="inv-add-pricing">Add new Pricing / currency</a></div>
+          </div>
+          <div style="grid-column: span 2">
+            <div class="section-title">Inventory</div>
+            <div class="row">
+              <button id="inv-loc-add" class="btn btn-small">Add Row</button>
+              <button id="inv-loc-del" class="btn btn-small">Delete Row</button>
+            </div>
+            <div id="inv-locations" class="table-host"></div>
+          </div>
+        </div>
+        <div class="vendor-tabs">
+          <button class="tab active" data-tab="info">Product Info</button>
+          <button class="tab" data-tab="extra">Extra Info</button>
+          <button class="tab" data-tab="vendors">Product Vendors</button>
+          <button class="tab" data-tab="movement">Movement History</button>
+          <button class="tab" data-tab="orders">Order History</button>
+        </div>
+        <div class="vendor-tabpanes">
+          <div id="inv-tab-info" class="tabpane active"><div id="inv-info" class="kv"></div></div>
+          <div id="inv-tab-extra" class="tabpane">
+            <div class="grid two-col">
+              <div>
+                <div class="section-title">Storage Info</div>
+                <label>Barcode<input id="inv-barcode" class="inp" data-cols="Barcode,UPC,EAN"></label>
+                <label>Reorder Point<input id="inv-reorder-point" class="inp" data-cols="ReorderPoint,ReorderLevel"></label>
+                <label>Reorder Quantity<input id="inv-reorder-qty" class="inp" data-cols="ReorderQuantity,ReorderQty"></label>
+                <label>Default Location<input id="inv-default-loc" class="inp" data-cols="DefaultLocation"></label>
+                <label>Default Sublocation<input id="inv-default-subloc" class="inp" data-cols="DefaultSublocation"></label>
+                <label>Last Vendor<input id="inv-last-vendor" class="inp" data-cols="LastVendor,LastSupplier"></label>
+                <div class="section-title" style="margin-top:12px">Unit of Measure</div>
+                <label>Standard UoM<input id="inv-uom-std" class="inp" data-cols="StandardUoM,Unit,UnitOfMeasure"></label>
+                <label>Sales UoM (SU)<input id="inv-uom-sales" class="inp" data-cols="SalesUoM"></label>
+                <label>Purchasing UoM (PU)<input id="inv-uom-purch" class="inp" data-cols="PurchasingUoM"></label>
+                <label>Loose UoM (LU)<input id="inv-uom-loose" class="inp" data-cols="LooseUoM"></label>
+                <div class="section-title" style="margin-top:12px">UoM Conversions</div>
+                <label>PU per LU<input id="inv-pu-per-lu" class="inp" type="number" step="1" min="0"></label>
+                <label>SU per LU<input id="inv-su-per-lu" class="inp" type="number" step="1" min="0"></label>
+                <div class="section-title" style="margin-top:12px">Tracking</div>
+                <label>Tracking Type
+                  <select id="inv-tracking-type" class="inp">
+                    <option>None</option>
+                    <option>Serial</option>
+                    <option>Lot</option>
+                  </select>
+                </label>
+                <div class="row">
+                  <button id="inv-track-add" class="btn btn-small">Add Row</button>
+                  <button id="inv-track-del" class="btn btn-small">Delete Row</button>
+                  <button id="inv-track-scan" class="btn btn-small">Scan Mode</button>
+                  <button id="inv-track-gen" class="btn btn-small">Add N Rows</button>
+                  <button id="inv-track-fefo" class="btn btn-small">Allocate FEFO</button>
+                  <button id="inv-track-import" class="btn btn-small">Import CSV</button>
+                  <button id="inv-track-export" class="btn btn-small">Export CSV</button>
+                </div>
+                <input id="inv-track-scan-input" class="inp" placeholder="Scan serial and press Enter" style="display:none;max-width:320px">
+                <div id="inv-tracking" class="table-host"></div>
+                <div class="section-title" style="margin-top:12px">Remarks</div>
+                <textarea id="inv-remarks" class="inp" rows="5" data-cols="Remarks,Notes,Comment"></textarea>
+              </div>
+              <div>
+                <div class="section-title">Bill of Materials</div>
+                <div class="row">
+                  <button id="inv-bom-add" class="btn btn-small">Add Component</button>
+                  <button id="inv-bom-del" class="btn btn-small">Delete Component</button>
+                </div>
+                <div id="inv-bom" class="table-host"></div>
+                <div class="row" style="justify-content:flex-end;margin-top:6px">
+                  <label style="min-width:200px">Total Cost <input id="inv-bom-total" class="inp" readonly></label>
+                </div>
+                <div class="section-title" style="margin-top:12px">Measurements</div>
+                <div class="grid two-col">
+                  <div>
+                    <label>Length<input id="inv-len" class="inp" data-cols="Length"></label>
+                    <label>Width<input id="inv-wid" class="inp" data-cols="Width"></label>
+                  </div>
+                  <div>
+                    <label>Height<input id="inv-hei" class="inp" data-cols="Height"></label>
+                    <label>Weight<input id="inv-wei" class="inp" data-cols="Weight"></label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="inv-tab-vendors" class="tabpane">
+            <div class="row">
+              <button id="inv-vendor-add" class="btn btn-small">Add Row</button>
+              <button id="inv-vendor-del" class="btn btn-small">Delete Row</button>
+            </div>
+            <div id="inv-vendors" class="table-host"></div>
+          </div>
+          <div id="inv-tab-movement" class="tabpane">
+            <div id="inv-move" class="table-host"></div>
+          </div>
+          <div id="inv-tab-orders" class="tabpane">
+            <div id="inv-orders" class="table-host"></div>
+            <div class="grid two-col" style="margin-top:8px">
+              <div>
+                <div>Quantity on Hand <span id="inv-qoh">0</span></div>
+                <div>Quantity Reserved <span id="inv-qres">0</span></div>
+              </div>
+              <div>
+                <div>Quantity on Order <span id="inv-qord">0</span></div>
+                <div>Quantity Available <span id="inv-qavail">0</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
-    <div id="schema"></div>
-    <div id="data"></div>
   </section>
   <section id="section-sales-order" class="panel section">
-    <h2>Sales Order</h2>
-    <div id="tbl-so" class="table-host"></div>
+    <div class="vendor-toolbar">
+      <div class="vendor-title">Sales Order</div>
+      <div class="vendor-actions">
+        <button class="btn">New</button>
+        <button class="btn">Save</button>
+        <button class="btn">Print</button>
+        <button class="btn">Copy</button>
+        <button class="btn">Version</button>
+        <button class="btn">Attachment</button>
+        <button class="btn">Sticky</button>
+        <button class="btn">Close</button>
+      </div>
+    </div>
+    <div class="vendor-wrap">
+      <aside class="vendor-search">
+        <div class="search-header">Search</div>
+        <label>Order #<input id="so-q-num" class="inp" placeholder=""></label>
+        <label>Status<select id="so-q-status" class="inp"><option value="">Any</option></select></label>
+        <label>Customer<select id="so-q-customer" class="inp"><option value="">Any</option></select></label>
+        <label>Date From<input id="so-q-from" class="inp" type="date"></label>
+        <label>Date To<input id="so-q-to" class="inp" type="date"></label>
+        <button id="so-refresh" class="btn btn-small">Refresh</button>
+        <div class="vendor-list" id="so-list"></div>
+        <div class="vendor-count" id="so-count"></div>
+      </aside>
+      <section class="vendor-detail">
+        <div class="grid two-col">
+          <div>
+            <div class="section-title">Customer</div>
+            <label>Customer<input id="so-customer" class="inp" data-cols="Customer,CustomerName,Company,Name"></label>
+            <label>Contact<input id="so-contact" class="inp" data-cols="Contact,ContactName,Attn"></label>
+            <label>Phone<input id="so-phone" class="inp" data-cols="Phone,Telephone,Mobile"></label>
+            <label>Address<textarea id="so-address" class="inp" rows="4" data-cols="Address,BillToAddress,BillingAddress"></textarea></label>
+          </div>
+          <div>
+            <div class="section-title">Order</div>
+            <label>Order #<input id="so-number" class="inp" data-cols="OrderNo,OrderNumber,SO,SalesOrderNo,DocumentNo"></label>
+            <label>Date<input id="so-date" class="inp" data-cols="Date,OrderDate"></label>
+            <label>Status<input id="so-status" class="inp" data-cols="Status"></label>
+            <label>Ship-To Address<textarea id="so-shipto" class="inp" rows="4" data-cols="ShipTo,ShipToAddress,ShipToAddr"></textarea></label>
+          </div>
+        </div>
+        <div class="section-title">Items</div>
+        <div class="row">
+          <button id="so-item-add" class="btn btn-small">Add Row</button>
+          <button id="so-item-del" class="btn btn-small">Delete Row</button>
+        </div>
+        <div id="so-items" class="table-host"></div>
+        <div class="vendor-tabs">
+          <button class="tab active" data-tab="sales">Sales</button>
+          <button class="tab" data-tab="advanced">Advanced</button>
+        </div>
+        <div class="vendor-tabpanes">
+          <div id="so-tab-sales" class="tabpane active">
+        <div class="grid three-col">
+          <div>
+            <div class="section-title">Terms & Dates</div>
+            <label>Terms<input id="so-terms" class="inp" data-cols="Terms,PaymentTerms"></label>
+            <label>Due Date<input id="so-due" class="inp" data-cols="DueDate"></label>
+            <label>Req. Ship Date<input id="so-req-ship" class="inp" data-cols="RequiredShipDate,ReqShipDate"></label>
+            <label>Remarks<textarea id="so-remarks" class="inp" rows="4" data-cols="Remarks,Notes,Comment"></textarea></label>
+          </div>
+          <div>
+            <div class="section-title">Pricing & Tax</div>
+            <label>Taxing Scheme<input id="so-tax" class="inp" data-cols="TaxingScheme,TaxCode,Tax"></label>
+            <label>Currency<input id="so-currency" class="inp" data-cols="Currency"></label>
+          </div>
+          <div>
+            <div class="section-title">Totals</div>
+            <label>Sub-Total<input id="so-subtotal" class="inp" readonly></label>
+            <label>Total<input id="so-total" class="inp" readonly></label>
+            <label>Paid<input id="so-paid" class="inp" readonly></label>
+            <label>Balance<input id="so-balance" class="inp" readonly></label>
+            <button class="btn" style="margin-top:8px">Complete &amp; Pay</button>
+          </div>
+        </div>
+          </div>
+          <div id="so-tab-advanced" class="tabpane"><div class="status">No advanced fields yet</div></div>
+        </div>
+      </section>
+    </div>
   </section>
   <section id="section-customer" class="panel section">
-    <h2>Customer</h2>
-    <div id="tbl-customer" class="table-host"></div>
+    <div class="vendor-toolbar">
+      <div class="vendor-title">Customer</div>
+      <div class="vendor-actions">
+        <button class="btn">New</button>
+        <button id="c-save" class="btn">Save</button>
+        <button class="btn">Copy</button>
+        <button class="btn">Version</button>
+        <button class="btn">Deactivate</button>
+        <button class="btn">Attachment</button>
+        <button class="btn">Close</button>
+      </div>
+    </div>
+    <div class="vendor-wrap">
+      <aside class="vendor-search">
+        <div class="search-header">Search</div>
+        <label>Name<input id="c-q-name" class="inp" placeholder=""></label>
+        <button id="c-refresh" class="btn btn-small">Refresh</button>
+        <div class="vendor-list" id="c-list"></div>
+        <div class="vendor-count" id="c-count"></div>
+      </aside>
+      <section class="vendor-detail">
+        <div class="grid two-col">
+          <div>
+            <div class="section-title">Basic</div>
+            <label>Name<input id="c-name" class="inp" data-cols="Name,Customer,Company"></label>
+            <label>Balance<input id="c-balance" class="inp" data-cols="Balance,OpeningBalance" readonly></label>
+          </div>
+          <div>
+            <div class="section-title">Addresses</div>
+            <select id="c-address-type" class="inp">
+              <option>Business Address</option>
+              <option>Shipping Address</option>
+            </select>
+            <textarea id="c-address" class="inp" rows="5" data-cols="Address,BusinessAddress,BillToAddress,Address1"></textarea>
+          </div>
+        </div>
+        <div class="grid three-col">
+          <div>
+            <div class="section-title">Contact</div>
+            <label>Name<input id="c-contact" class="inp" data-cols="Contact,ContactName,Attn"></label>
+            <label>Phone<input id="c-phone" class="inp" data-cols="Phone,Telephone,Mobile"></label>
+            <label>Fax<input id="c-fax" class="inp" data-cols="Fax"></label>
+            <label>Email<input id="c-email" class="inp" data-cols="Email"></label>
+            <label>Website<input id="c-website" class="inp" data-cols="Website,URL"></label>
+          </div>
+          <div>
+            <div class="section-title">Purchasing Info</div>
+            <label>Pricing / Currency<input id="c-currency" class="inp" data-cols="Currency"></label>
+            <label>Discount<input id="c-discount" class="inp" data-cols="Discount"></label>
+            <label>Payment Terms<input id="c-terms" class="inp" data-cols="PaymentTerms,Terms"></label>
+            <label>Taxing Scheme<input id="c-tax" class="inp" data-cols="TaxingScheme,TaxCode,TaxGroup"></label>
+            <label>Tax Exempt #<input id="c-tax-exempt" class="inp" data-cols="TaxExempt,TaxExemptNo,TaxExemptNumber"></label>
+          </div>
+          <div>
+            <div class="section-title">Remarks</div>
+            <textarea id="c-remarks" class="inp" rows="8" data-cols="Remarks,Notes,Comment"></textarea>
+          </div>
+        </div>
+        <div class="vendor-tabs">
+          <button class="tab active" data-tab="info">Customer Info</button>
+          <button class="tab" data-tab="extra">Extra Info</button>
+          <button class="tab" data-tab="orders">Order History</button>
+        </div>
+        <div class="vendor-tabpanes">
+          <div id="c-tab-info" class="tabpane active">
+            <div class="kv" id="c-kv"></div>
+          </div>
+          <div id="c-tab-extra" class="tabpane"><div class="status">No extra fields yet</div></div>
+          <div id="c-tab-orders" class="tabpane">
+            <div id="c-orders" class="table-host"></div>
+          </div>
+        </div>
+      </section>
+    </div>
   </section>
   <section id="section-settings" class="panel section">
     <h2>Settings</h2>
@@ -89,6 +545,15 @@
       <button id="db-restore">Restore Database</button>
     </div>
     <div id="db-restore-status" class="status"></div>
+    <div class="row">
+      <button id="db-normalize">Normalize Collations</button>
+    </div>
+    <div id="db-normalize-status" class="status"></div>
+    <hr>
+    <div class="row">
+      <button id="run-selftest">Run Diagnostics</button>
+    </div>
+    <div id="selftest-result" class="table-host"></div>
   </section>
 </main>
 <script type="module" src="./app.js"></script>

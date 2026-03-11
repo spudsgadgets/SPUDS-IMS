@@ -28,15 +28,25 @@ function Ensure-FirewallRule($name,$port){
   try{
     $exists = (netsh advfirewall firewall show rule name="$name" | Select-String -Pattern "Rule Name") -ne $null
     if(-not $exists){
-      netsh advfirewall firewall add rule name="$name" dir=in action=allow protocol=TCP localport=$port | Out-Null
+      netsh advfirewall firewall add rule name="$name" dir=in action=allow protocol=TCP localport=$port profile=any enable=yes | Out-Null
       Write-Host "Opened Windows Firewall for TCP $port ($name)"
     }
   }catch{
     Write-Warning ("Could not add firewall rule for port {0}: {1}" -f $port, $_)
   }
 }
+function Test-IsAdmin(){
+  try{
+    $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+    $p=New-Object Security.Principal.WindowsPrincipal($id)
+    return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  }catch{ return $false }
+}
 Ensure-FirewallRule -name "SPUDS IMS API $ApiPort" -port $ApiPort
 if($AllowDB){ Ensure-FirewallRule -name "SPUDS IMS DB $DbPort" -port $DbPort }
+if(-not (Test-IsAdmin)){
+  Write-Warning "Firewall rules may not be added without Administrator rights. If remote access fails, run Start-IMS.cmd as Administrator."
+}
 Write-Host "Starting Node app on port $ApiPort (listening on all interfaces)..."
 Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `$env:MYSQL_PORT='$DbPort'; `$env:PORT='$ApiPort'; node server.js" -WorkingDirectory $root
 try{

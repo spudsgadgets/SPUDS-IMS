@@ -28,6 +28,10 @@ $sqlPath = Join-Path $OutDir $sqlName
 
 $args = @("--host=$DbHost","--port=$DbPort","--user=$User","--single-transaction","--quick","--routines","--events","--default-character-set=utf8mb4","--databases",$Database)
 if($Password -ne ""){ $args = @("--password=$Password") + $args }
+try{
+  $charsetDir = Join-Path $root "mariadb\share\charsets"
+  if(Test-Path $charsetDir){ $args += @("--character-sets-dir=" + ($charsetDir -replace '\\','/')) }
+}catch{}
 
 Write-Host "Backing up database '$Database' from ${DbHost}:$DbPort ..."
 & $dumpExe @args | Out-File -FilePath $sqlPath -Encoding ascii
