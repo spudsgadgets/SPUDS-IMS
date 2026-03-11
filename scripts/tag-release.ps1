@@ -15,7 +15,8 @@ if(-not $Tag -or $Tag.Trim() -eq ""){
 $status = (_Try "git status --porcelain")
 if($status){ Write-Warning "Uncommitted changes present. Commit before tagging."; exit 1 }
 # create tag if missing
-$exists = (_Try "git tag -l $Tag").Trim()
+$existsRaw = _Try "git tag -l $Tag"
+$exists = if ($existsRaw) { ($existsRaw | Out-String).Trim() } else { "" }
 if(-not $exists){
   git tag -a $Tag -m "Release $Tag"
   Write-Host "Created tag $Tag"
