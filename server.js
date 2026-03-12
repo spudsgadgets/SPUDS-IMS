@@ -9,6 +9,8 @@ const PUBLIC=path.join(__dirname,'public')
 const PORT=parseInt(process.env.PORT||'3200',10)
 let mysql
 try{mysql=await import('mysql2/promise')}catch{}
+function getDb(){return process.env.MYSQL_DATABASE||'ims'}
+function getArchiveDb(){const base=getDb();return (process.env.MYSQL_ARCHIVE_DATABASE||(`${base}_archive`))}
 function cors(res){res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,DELETE,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type')}
 function json(res,code,obj){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(obj))}
 function ok(res,obj){json(res,200,obj)}
@@ -99,6 +101,50 @@ async function nodeDumpDatabase(database){
   out.push('SET FOREIGN_KEY_CHECKS=1;');
   return out.join('\n')
 }
+async function ensureArchiveDatabase(){
+  const base=getDb();const arch=getArchiveDb();if(arch===base)return;
+  const pool=await ensurePool();
+  try{await pool.query('CREATE DATABASE IF NOT EXISTS `'+arch+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')}catch{}
+}
+async function __detectDateColumn(pool,table){
+  try{
+    const [cols]=await pool.query('SHOW COLUMNS FROM `'+table+'`');
+    const pri=['CreatedAt','UpdatedAt','OrderDate','InvoiceDate','Date','Timestamp','Created','Updated','Expiration'];
+    const typeMap=Object.fromEntries((cols||[]).map(c=>[String(c.Field),String(c.Type||'').toLowerCase()]));
+    for(const k of pri){const t=typeMap[k];if(t&&(t.includes('date')||t.includes('time')))return k}
+  }catch{}
+  return null
+}
+async function archiveOlderThanCurrentYear(){
+  const base=getDb();const arch=getArchiveDb();await ensureArchiveDatabase();
+  const pool=await ensurePool();const conn=await pool.getConnection();
+  const result={archived:{},skipped:[],errors:{}};
+  try{
+    await conn.query('SET FOREIGN_KEY_CHECKS=0');
+    const [tables]=await conn.query('SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[base]);
+    for(const r of tables||[]){
+      const name=r&&r.TABLE_NAME;const type=String(r&&r.TABLE_TYPE||'').toUpperCase();
+      if(!name||type==='VIEW')continue;
+      const dateCol=await __detectDateColumn(conn,name);
+      if(!dateCol){result.skipped.push(name);continue}
+      try{
+        await conn.query('CREATE TABLE IF NOT EXISTS `'+arch+'`.`'+name+'` LIKE `'+base+'`.`'+name+'`');
+      }catch{}
+      try{
+        const [ins]=await conn.query('INSERT INTO `'+arch+'`.`'+name+'` SELECT * FROM `'+base+'`.`'+name+'` WHERE YEAR(`'+dateCol+'`)<YEAR(CURDATE())');
+        const affected=Number(ins&&ins.affectedRows||0);
+        if(affected>0){
+          await conn.query('DELETE FROM `'+base+'`.`'+name+'` WHERE YEAR(`'+dateCol+'`)<YEAR(CURDATE())');
+        }
+        result.archived[name]=affected;
+      }catch(e){
+        result.errors[name]=String(e&&e.message||e)
+      }
+    }
+    await conn.query('SET FOREIGN_KEY_CHECKS=1');
+  }finally{conn.release()}
+  return result
+}
 async function handleAPI(req,res){
 cors(res);
 const url=new URL(req.url,'http://localhost');
@@ -106,6 +152,13 @@ if(req.method==='OPTIONS'){res.writeHead(204);res.end();return}
 if(url.pathname==='/api/health'){
   try{const pool=await ensurePool();const [r]=await pool.query('SELECT 1 AS ok');ok(res,{ok:true,db:Boolean(r&&r.length)})}
   catch(e){ok(res,{ok:false,error:String(e&&e.message||e)})}
+  return
+}
+if(url.pathname==='/api/archive/run'&&req.method==='POST'){
+  try{
+    const out=await archiveOlderThanCurrentYear();
+    ok(res,{ok:true,...out,archive:getArchiveDb(),database:getDb()})
+  }catch(e){json(res,500,{error:String(e&&e.message||e)})}
   return
 }
 if(url.pathname==='/api/version'&&req.method==='GET'){
@@ -456,6 +509,7 @@ if(url.pathname==='/api/data'){
   if(!isValidName(t))return bad(res,'invalid table');
   const limit=Math.min(1000,parseInt(url.searchParams.get('limit')||'200',10)||200);
   const offset=Math.max(0,parseInt(url.searchParams.get('offset')||'0',10)||0);
+  const includeArchive=String(url.searchParams.get('includeArchive')||'').toLowerCase()==='true';
   try{
     if(t==='inventory')await ensureInventoryView();
     if(t==='vendor')await ensureVendorView();
@@ -463,11 +517,37 @@ if(url.pathname==='/api/data'){
     if(t==='sales_order')await ensureSalesOrderView();
     if(t==='customer')await ensureCustomerView();
     const pool=await ensurePool();
-    const [rows]=await pool.query('SELECT * FROM `'+t+'` LIMIT ? OFFSET ?',[limit,offset]);
+    let [rows]=await pool.query('SELECT * FROM `'+t+'` LIMIT ? OFFSET ?',[limit,offset]);
+    if(includeArchive){
+      try{
+        const arch=getArchiveDb();const base=getDb();
+        const [types]=await pool.query('SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[base,t]);
+        const type=(types&&types[0]&&types[0].TABLE_TYPE)||'BASE TABLE';
+        if(String(type).toUpperCase()!=='VIEW'){
+          if(rows.length<limit){
+            const need=limit-rows.length;
+            const [aRows]=await pool.query('SELECT * FROM `'+arch+'`.`'+t+'` LIMIT ? OFFSET ?',[need,offset]);
+            rows=rows.concat(aRows||[]);
+          }
+        }
+      }catch{}
+    }
     ok(res,{table:t,rows})
   }catch(e){
     ok(res,{table:t,rows:[]})
   }
+  return
+}
+if(url.pathname==='/api/archive/data'){
+  const t=url.searchParams.get('table')||'';
+  if(!isValidName(t))return bad(res,'invalid table');
+  const limit=Math.min(1000,parseInt(url.searchParams.get('limit')||'200',10)||200);
+  const offset=Math.max(0,parseInt(url.searchParams.get('offset')||'0',10)||0);
+  try{
+    const pool=await ensurePool();const arch=getArchiveDb();
+    const [rows]=await pool.query('SELECT * FROM `'+arch+'`.`'+t+'` LIMIT ? OFFSET ?',[limit,offset]);
+    ok(res,{table:t,rows})
+  }catch(e){ok(res,{table:t,rows:[]})}
   return
 }
 if(url.pathname==='/api/count'){
