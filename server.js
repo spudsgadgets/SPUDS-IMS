@@ -2,7 +2,7 @@ import http from 'http'
 import { readFile, stat, readdir, writeFile } from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import os from 'os'
 const __dirname=path.dirname(fileURLToPath(import.meta.url))
 const PUBLIC=path.join(__dirname,'public')
@@ -401,6 +401,14 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
       const cand=[path.join(__dirname,'mariadb','bin','mariadb.exe'),path.join(__dirname,'mariadb','bin','mysql.exe'),'mariadb.exe','mysql.exe']
       let mysqlExe=null;for(const p of cand){try{await stat(p);mysqlExe=p;break}catch{}}
       if(!mysqlExe){bad(res,'mysql client not found');return}
+      const runWithText=async(text)=>{
+        return await new Promise((resolve,reject)=>{
+          const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--database='+cfg.database];if(cfg.password){args.unshift('--password='+cfg.password)}
+          const cp=spawn(mysqlExe,args,{windowsHide:true})
+          let stderr='';cp.stderr.on('data',d=>{stderr+=String(d||'')});cp.on('error',reject);cp.on('close',code=>{if(code!==0){reject(new Error(stderr||('exit '+code)))}else{resolve()}})
+          try{cp.stdin.write(text)}catch(e){reject(e)}finally{try{cp.stdin.end()}catch{}}
+        })
+      }
       if(isZip){
         const zipPath=path.join(os.tmpdir(),'spuds-restore-'+Date.now()+'.zip')
         await writeFile(zipPath,buf)
@@ -410,23 +418,17 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
         let files=await readdir(dest);const sqlFile=files.find(f=>/\.sql$/i.test(f))
         if(!sqlFile){bad(res,'no .sql in zip');try{require('fs').unlinkSync(zipPath)}catch{};return}
         const srcWin=path.join(dest,sqlFile)
-        const srcEsc=srcWin.replace(/\\/g,'\\\\').replace(/"/g,'\\"')
-        const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--database='+cfg.database];if(cfg.password){args.unshift('--password='+cfg.password)};args.push('-e','source "'+srcEsc+'"')
-        execFile(mysqlExe,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
-          try{require('fs').unlinkSync(zipPath)}catch{};try{require('fs').unlinkSync(path.join(dest,sqlFile))}catch{}
-          if(err){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
-          ok(res,{ok:true})
-        })
+        const text=await readFile(srcWin,'utf8')
+        try{await runWithText(text);ok(res,{ok:true})}
+        catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))}
+        finally{try{require('fs').unlinkSync(zipPath)}catch{};try{require('fs').unlinkSync(srcWin)}catch{}}
       }else{
         const tmp=path.join(os.tmpdir(),`spuds-restore-${Date.now()}.sql`)
         await writeFile(tmp,buf.toString('utf8'),'utf8')
-        const srcEsc=tmp.replace(/\\/g,'\\\\').replace(/"/g,'\\"')
-        const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--database='+cfg.database];if(cfg.password){args.unshift('--password='+cfg.password)};args.push('-e','source "'+srcEsc+'"')
-        execFile(mysqlExe,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
-          try{require('fs').unlinkSync(tmp)}catch{}
-          if(err){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
-          ok(res,{ok:true})
-        })
+        const text=await readFile(tmp,'utf8')
+        try{await runWithText(text);ok(res,{ok:true})}
+        catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))}
+        finally{try{require('fs').unlinkSync(tmp)}catch{}}
       }
     }catch(e){json(res,500,{error:String(e&&e.message||e)})}
   })
