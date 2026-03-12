@@ -409,8 +409,9 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
         await new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-Command',cmd],{windowsHide:true},(e)=>e?reject(e):resolve()))
         let files=await readdir(dest);const sqlFile=files.find(f=>/\.sql$/i.test(f))
         if(!sqlFile){bad(res,'no .sql in zip');try{require('fs').unlinkSync(zipPath)}catch{};return}
-        const src=path.join(dest,sqlFile).replace(/\\\\/g,'/').replace(/\\/g,'/')
-        const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user];if(cfg.password){args.unshift('--password='+cfg.password)};args.push('--execute=source "'+src+'"')
+        const srcWin=path.join(dest,sqlFile)
+        const srcEsc=srcWin.replace(/\\/g,'\\\\').replace(/"/g,'\\"')
+        const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--database='+cfg.database];if(cfg.password){args.unshift('--password='+cfg.password)};args.push('-e','source "'+srcEsc+'"')
         execFile(mysqlExe,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
           try{require('fs').unlinkSync(zipPath)}catch{};try{require('fs').unlinkSync(path.join(dest,sqlFile))}catch{}
           if(err){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
@@ -419,8 +420,8 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
       }else{
         const tmp=path.join(os.tmpdir(),`spuds-restore-${Date.now()}.sql`)
         await writeFile(tmp,buf.toString('utf8'),'utf8')
-        const src=tmp.replace(/\\\\/g,'/').replace(/\\/g,'/')
-        const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user];if(cfg.password){args.unshift('--password='+cfg.password)};args.push('--execute=source "'+src+'"')
+        const srcEsc=tmp.replace(/\\/g,'\\\\').replace(/"/g,'\\"')
+        const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--database='+cfg.database];if(cfg.password){args.unshift('--password='+cfg.password)};args.push('-e','source "'+srcEsc+'"')
         execFile(mysqlExe,args,{windowsHide:true,maxBuffer:1024*1024*200},(err,stdout,stderr)=>{
           try{require('fs').unlinkSync(tmp)}catch{}
           if(err){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(err&&err.message||err),detail:stderr}));return}
