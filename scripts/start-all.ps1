@@ -2,11 +2,14 @@ param(
   [string]$DbPort = "3307",
   [string]$ApiPort = "3200",
   [switch]$AllowDB,
-  [bool]$OpenBrowser = $true
+  [bool]$OpenBrowser = $true,
+  [switch]$Debug
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $root
+$logDir = Join-Path $root "logs"
+if(-not (Test-Path $logDir)){ New-Item -ItemType Directory -Path $logDir | Out-Null }
 $dbScript = Join-Path $root "scripts\start-db.ps1"
 if(-not (Test-Path $dbScript)){ Write-Error "start-db.ps1 not found at $dbScript"; exit 1 }
 Write-Host "Starting MariaDB on port $DbPort..."
@@ -49,13 +52,58 @@ if(-not (Test-IsAdmin)){
 }
 Write-Host "Starting Node app on port $ApiPort (listening on all interfaces)..."
 try{
-  $nodeCmd = Get-Command -Name node -ErrorAction SilentlyContinue
   $localNode = Join-Path $root "node\node.exe"
   $nodeCall = $null
-  if($nodeCmd){ $nodeCall = "node" }
-  elseif(Test-Path $localNode){ $nodeCall = ('"{0}"' -f $localNode) }
+  $nodePathActual = $null
+  $nodeVer = ""
+  if(Test-Path $localNode){ $nodeCall = ('"{0}"' -f $localNode) }
+  else{
+    $nodeCmd = Get-Command -Name node -ErrorAction SilentlyContinue
+    if($nodeCmd){
+      $verRaw = ""
+      try{ $verRaw = (& node -v) }catch{}
+      $major = 0
+      if($verRaw -match 'v(\d+)\.'){
+        $major = [int]$matches[1]
+      }
+      if($major -ge 18){ $nodeCall = "node" }
+      else{
+        Write-Warning ("PATH Node version too old or unknown ('{0}') - will use bundled runtime if available." -f $verRaw)
+      }
+      $nodeVer = $verRaw
+      try{ $nodePathActual = $nodeCmd.Source }catch{}
+    }
+  }
+  if(-not $nodeCall){
+    $setupCmd = Join-Path $root "Setup-Portable-Node.cmd"
+    if(Test-Path $setupCmd){
+      Start-Process -FilePath $setupCmd -WorkingDirectory $root -Wait
+      if(Test-Path $localNode){ $nodeCall = ('"{0}"' -f $localNode) }
+      $nodePathActual = $localNode
+    }
+  }
   if(-not $nodeCall){ Write-Error "Node.js runtime not found. Install Node or place node\\node.exe in the IMS folder."; exit 1 }
-  Start-Process -FilePath "powershell" -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -Command `$env:MYSQL_PORT='{0}'; `$env:PORT='{1}'; {2} server.js" -f $DbPort,$ApiPort,$nodeCall) -WorkingDirectory $root
+  if(-not $nodePathActual){
+    if($nodeCall -eq "node"){
+      try{ $nodePathActual = (Get-Command -Name node -ErrorAction SilentlyContinue).Source }catch{}
+    }else{
+      $nodePathActual = $localNode
+    }
+  }
+  if($nodePathActual){ Write-Host ("Using Node runtime: {0} {1}" -f $nodePathActual,$nodeVer) }
+  if($Debug){
+    $env:MYSQL_PORT=$DbPort
+    $env:PORT=$ApiPort
+    & $nodePathActual (Join-Path $root "server.js")
+  }else{
+    $env:MYSQL_PORT=$DbPort
+    $env:PORT=$ApiPort
+    $outLog = Join-Path $logDir "node-out.log"
+    $errLog = Join-Path $logDir "node-err.log"
+    try{ Remove-Item -Force $outLog,$errLog -ErrorAction SilentlyContinue }catch{}
+    $srv = Join-Path $root "server.js"
+    Start-Process -FilePath $nodePathActual -ArgumentList @("`"$srv`"") -WorkingDirectory $root -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+  }
 }catch{ Write-Error ("Node start failed: {0}" -f $_); exit 1 }
 try{
   $ips = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' -and -not $_.IPAddress.StartsWith('169.254.') } | Select-Object -ExpandProperty IPAddress -ErrorAction SilentlyContinue
@@ -76,15 +124,20 @@ function Test-HttpHealth($url){
 }
 if($OpenBrowser){
   $base = "http://localhost:$ApiPort/"
+  $ok = $false
   for($i=0;$i -lt 40;$i++){
-    if(Test-HttpHealth $base){ break }
+    if(Test-HttpHealth $base){ $ok = $true; break }
     Start-Sleep -Milliseconds 250
   }
-  try{
-    Start-Process $base | Out-Null
-    Write-Host "Opened browser at $base"
-  }catch{
-    Write-Warning "Could not open browser automatically: $_"
+  if($ok){
+    try{
+      Start-Process $base | Out-Null
+      Write-Host "Opened browser at $base"
+    }catch{
+      Write-Warning "Could not open browser automatically: $_"
+    }
+  }else{
+    Write-Warning ("API did not respond at {0}. Check logs\node-err.log and logs\node-out.log" -f $base)
   }
 }
 Write-Host "Started DB and app. DB port=$DbPort, API port=$ApiPort"

@@ -88,6 +88,25 @@ function Ensure-Node($root){
   }catch{}
   return $false
 }
+function Get-DepStatus($root){
+  try{
+    $mods = Join-Path $root "node_modules"
+    $has = Test-Path $mods
+    $deps = @("mysql2")
+    $missing = @()
+    if($has){
+      foreach($d in $deps){
+        $p = Join-Path $mods $d
+        if(-not (Test-Path $p)){ $missing += $d }
+      }
+    }else{
+      $missing = $deps
+    }
+    return @{ has=$has; missing=$missing }
+  }catch{
+    return @{ has=$false; missing=@("unknown") }
+  }
+}
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
 Out ("Diagnosing access on port {0}" -f $ApiPort)
@@ -104,6 +123,9 @@ if($pids -and $pids.Count -gt 0){
   if($hasNode){ Out "Node.js found on PATH." }
   elseif($localNode){ Out ("Bundled node found at {0}" -f $localNode) }
   else{ Out "Node.js runtime not found on PATH and no bundled node present." }
+  $dep = Get-DepStatus $root
+  if(-not $dep.has){ Out "Dependencies missing: node_modules not found." }
+  elseif($dep.missing -and $dep.missing.Count -gt 0){ Out ("Missing dependencies: {0}" -f ([string]::Join(", ",$dep.missing))) }
 }
 $healthy = Test-Health $ApiPort
 $healthText = if($healthy){"OK"}else{"FAIL"}

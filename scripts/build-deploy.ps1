@@ -31,6 +31,39 @@ foreach($item in $items){
     Copy-Item -Force -LiteralPath $item.FullName -Destination $dest
   }
 }
+function TryNpmInstall($dir){
+  try{
+    $npm = Get-Command -Name npm -ErrorAction SilentlyContinue
+    if(-not $npm){ Write-Warning "npm not found; will copy node_modules from root if available."; return $false }
+    Push-Location $dir
+    try{
+      if(Test-Path (Join-Path $dir "package-lock.json")){
+        & npm ci --omit=dev
+      }else{
+        & npm install --omit=dev
+      }
+      Write-Host "Installed production dependencies in bundle via npm."
+      return $true
+    }finally{ Pop-Location }
+  }catch{
+    Write-Warning ("npm install failed: {0}" -f $_)
+    return $false
+  }
+}
+if(-not (TryNpmInstall $bundle)){
+  try{
+    $srcNodeMods = Join-Path $root "node_modules"
+    $dstNodeMods = Join-Path $bundle "node_modules"
+    if(Test-Path $srcNodeMods){
+      Copy-Item -Recurse -Force -LiteralPath $srcNodeMods -Destination $dstNodeMods
+      Write-Host "Copied node_modules from root into deploy bundle."
+    }else{
+      Write-Warning "node_modules not available; runtime may fail. Ensure dependencies are installed before packaging."
+    }
+  }catch{
+    Write-Warning ("Failed to copy node_modules: {0}" -f $_)
+  }
+}
 try{
   $nodeExe = Join-Path $bundle "node\node.exe"
   if(-not (Test-Path $nodeExe)){
