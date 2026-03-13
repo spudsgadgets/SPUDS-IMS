@@ -25,7 +25,9 @@ if($needsInit){
   foreach($c in $installCandidates){ if(Test-Path $c){ $installer = $c; break } }
   if(-not $installer){ Write-Error "mariadb-install-db.exe not found for initialization."; exit 1 }
   Write-Host "Initializing MariaDB data dir at $dataDir using $installer"
-  & $installer "--datadir=$dataDir" "--defaults-file=$myIni"
+  $initArgs = @("--datadir=$dataDir")
+  if(Test-Path $myIni){ $initArgs += @("--config=$myIni") }
+  & $installer @initArgs
 }
 Write-Host "Starting MariaDB from $mysqld with $myIni on port $Port"
 & $mysqld "--defaults-file=$myIni" "--port=$Port"

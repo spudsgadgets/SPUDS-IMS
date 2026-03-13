@@ -1,4 +1,5 @@
 import http from 'http'
+import fs from 'fs'
 import { readFile, stat, readdir, writeFile } from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -9,8 +10,6 @@ const PUBLIC=path.join(__dirname,'public')
 const PORT=parseInt(process.env.PORT||'3200',10)
 let mysql
 try{mysql=await import('mysql2/promise')}catch{}
-function getDb(){return process.env.MYSQL_DATABASE||'ims'}
-function getArchiveDb(){const base=getDb();return (process.env.MYSQL_ARCHIVE_DATABASE||(`${base}_archive`))}
 function cors(res){res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,DELETE,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type')}
 function json(res,code,obj){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(obj))}
 function ok(res,obj){json(res,200,obj)}
@@ -101,49 +100,27 @@ async function nodeDumpDatabase(database){
   out.push('SET FOREIGN_KEY_CHECKS=1;');
   return out.join('\n')
 }
-async function ensureArchiveDatabase(){
-  const base=getDb();const arch=getArchiveDb();if(arch===base)return;
-  const pool=await ensurePool();
-  try{await pool.query('CREATE DATABASE IF NOT EXISTS `'+arch+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')}catch{}
-}
-async function __detectDateColumn(pool,table){
-  try{
-    const [cols]=await pool.query('SHOW COLUMNS FROM `'+table+'`');
-    const pri=['CreatedAt','UpdatedAt','OrderDate','InvoiceDate','Date','Timestamp','Created','Updated','Expiration'];
-    const typeMap=Object.fromEntries((cols||[]).map(c=>[String(c.Field),String(c.Type||'').toLowerCase()]));
-    for(const k of pri){const t=typeMap[k];if(t&&(t.includes('date')||t.includes('time')))return k}
-  }catch{}
+
+async function __firstExisting(paths){
+  for(const p of paths){try{await stat(p);return p}catch{}}
   return null
 }
-async function archiveOlderThanCurrentYear(){
-  const base=getDb();const arch=getArchiveDb();await ensureArchiveDatabase();
-  const pool=await ensurePool();const conn=await pool.getConnection();
-  const result={archived:{},skipped:[],errors:{}};
+async function ensureMysqlClient(cfg){
+  const cand=[path.join(__dirname,'mariadb','bin','mariadb.exe'),path.join(__dirname,'mariadb','bin','mysql.exe'),'mariadb.exe','mysql.exe']
+  let mysqlExe=await __firstExisting(cand)
+  if(mysqlExe)return {mysqlExe,setupError:null}
+  const setup=path.join(__dirname,'scripts','setup-portable-mariadb.ps1')
+  try{await stat(setup)}catch{return {mysqlExe:null,setupError:new Error('scripts/setup-portable-mariadb.ps1 not found')}}
+  const port=String(parseInt(cfg&&cfg.port||'3307',10)||3307)
   try{
-    await conn.query('SET FOREIGN_KEY_CHECKS=0');
-    const [tables]=await conn.query('SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[base]);
-    for(const r of tables||[]){
-      const name=r&&r.TABLE_NAME;const type=String(r&&r.TABLE_TYPE||'').toUpperCase();
-      if(!name||type==='VIEW')continue;
-      const dateCol=await __detectDateColumn(conn,name);
-      if(!dateCol){result.skipped.push(name);continue}
-      try{
-        await conn.query('CREATE TABLE IF NOT EXISTS `'+arch+'`.`'+name+'` LIKE `'+base+'`.`'+name+'`');
-      }catch{}
-      try{
-        const [ins]=await conn.query('INSERT INTO `'+arch+'`.`'+name+'` SELECT * FROM `'+base+'`.`'+name+'` WHERE YEAR(`'+dateCol+'`)<YEAR(CURDATE())');
-        const affected=Number(ins&&ins.affectedRows||0);
-        if(affected>0){
-          await conn.query('DELETE FROM `'+base+'`.`'+name+'` WHERE YEAR(`'+dateCol+'`)<YEAR(CURDATE())');
-        }
-        result.archived[name]=affected;
-      }catch(e){
-        result.errors[name]=String(e&&e.message||e)
-      }
-    }
-    await conn.query('SET FOREIGN_KEY_CHECKS=1');
-  }finally{conn.release()}
-  return result
+    await new Promise((resolve,reject)=>{
+      execFile('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',setup,'-Port',port],{windowsHide:true,maxBuffer:1024*1024*50},(e,stdout,stderr)=>{
+        if(e){reject(new Error(String(stderr||stdout||e&&e.message||e)))}else resolve()
+      })
+    })
+  }catch(e){return {mysqlExe:null,setupError:e}}
+  mysqlExe=await __firstExisting(cand)
+  return {mysqlExe,setupError:null}
 }
 async function handleAPI(req,res){
 cors(res);
@@ -152,13 +129,6 @@ if(req.method==='OPTIONS'){res.writeHead(204);res.end();return}
 if(url.pathname==='/api/health'){
   try{const pool=await ensurePool();const [r]=await pool.query('SELECT 1 AS ok');ok(res,{ok:true,db:Boolean(r&&r.length)})}
   catch(e){ok(res,{ok:false,error:String(e&&e.message||e)})}
-  return
-}
-if(url.pathname==='/api/archive/run'&&req.method==='POST'){
-  try{
-    const out=await archiveOlderThanCurrentYear();
-    ok(res,{ok:true,...out,archive:getArchiveDb(),database:getDb()})
-  }catch(e){json(res,500,{error:String(e&&e.message||e)})}
   return
 }
 if(url.pathname==='/api/version'&&req.method==='GET'){
@@ -381,12 +351,12 @@ if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.me
     const tmpZip=path.join(os.tmpdir(),'spuds-backup-'+Date.now()+'.zip')
     const cmd='Compress-Archive -Path \"'+tmpSql.replace(/\\/g,'/')+'\" -DestinationPath \"'+tmpZip.replace(/\\/g,'/')+'\" -Force'
     execFile('powershell.exe',['-NoProfile','-Command',cmd],{windowsHide:true},(perr,pout,perrStr)=>{
-      try{require('fs').unlinkSync(tmpSql)}catch{}
+      try{fs.unlinkSync(tmpSql)}catch{}
       if(perr){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(perr&&perr.message||perr),detail:perrStr}));return}
       readFile(tmpZip).then(data=>{
         res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename=\"'+fnZip+'\"'})
         res.end(data)
-        try{require('fs').unlinkSync(tmpZip)}catch{}
+        try{fs.unlinkSync(tmpZip)}catch{}
       }).catch(e=>{res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))})
     })
   }catch(e){json(res,500,{error:String(e&&e.message||e)})}
@@ -451,9 +421,13 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
       const buf=Buffer.concat(chunks);
       const isZip=buf.length>=4&&buf[0]===0x50&&buf[1]===0x4b&&buf[2]===0x03&&buf[3]===0x04
       const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
-      const cand=[path.join(__dirname,'mariadb','bin','mariadb.exe'),path.join(__dirname,'mariadb','bin','mysql.exe'),'mariadb.exe','mysql.exe']
-      let mysqlExe=null;for(const p of cand){try{await stat(p);mysqlExe=p;break}catch{}}
-      if(!mysqlExe){bad(res,'mysql client not found');return}
+      const mysqlClient=await ensureMysqlClient(cfg)
+      const mysqlExe=mysqlClient&&mysqlClient.mysqlExe
+      if(!mysqlExe){
+        const detail=mysqlClient&&mysqlClient.setupError?String(mysqlClient.setupError&&mysqlClient.setupError.message||mysqlClient.setupError):''
+        bad(res,detail?('mysql client not found: '+detail):'mysql client not found (run scripts/setup-portable-mariadb.ps1 or add mysql.exe to PATH)')
+        return
+      }
       const runWithText=async(text)=>{
         return await new Promise((resolve,reject)=>{
           const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--database='+cfg.database];if(cfg.password){args.unshift('--password='+cfg.password)}
@@ -469,19 +443,19 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
         const cmd='Expand-Archive -Path \"'+zipPath.replace(/\\/g,'/')+'\" -DestinationPath \"'+dest.replace(/\\/g,'/')+'\" -Force'
         await new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-Command',cmd],{windowsHide:true},(e)=>e?reject(e):resolve()))
         let files=await readdir(dest);const sqlFile=files.find(f=>/\.sql$/i.test(f))
-        if(!sqlFile){bad(res,'no .sql in zip');try{require('fs').unlinkSync(zipPath)}catch{};return}
+        if(!sqlFile){bad(res,'no .sql in zip');try{fs.unlinkSync(zipPath)}catch{};return}
         const srcWin=path.join(dest,sqlFile)
         const text=await readFile(srcWin,'utf8')
         try{await runWithText(text);ok(res,{ok:true})}
         catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))}
-        finally{try{require('fs').unlinkSync(zipPath)}catch{};try{require('fs').unlinkSync(srcWin)}catch{}}
+        finally{try{fs.unlinkSync(zipPath)}catch{};try{fs.unlinkSync(srcWin)}catch{}}
       }else{
         const tmp=path.join(os.tmpdir(),`spuds-restore-${Date.now()}.sql`)
         await writeFile(tmp,buf.toString('utf8'),'utf8')
         const text=await readFile(tmp,'utf8')
         try{await runWithText(text);ok(res,{ok:true})}
         catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))}
-        finally{try{require('fs').unlinkSync(tmp)}catch{}}
+        finally{try{fs.unlinkSync(tmp)}catch{}}
       }
     }catch(e){json(res,500,{error:String(e&&e.message||e)})}
   })
@@ -509,7 +483,6 @@ if(url.pathname==='/api/data'){
   if(!isValidName(t))return bad(res,'invalid table');
   const limit=Math.min(1000,parseInt(url.searchParams.get('limit')||'200',10)||200);
   const offset=Math.max(0,parseInt(url.searchParams.get('offset')||'0',10)||0);
-  const includeArchive=String(url.searchParams.get('includeArchive')||'').toLowerCase()==='true';
   try{
     if(t==='inventory')await ensureInventoryView();
     if(t==='vendor')await ensureVendorView();
@@ -517,37 +490,11 @@ if(url.pathname==='/api/data'){
     if(t==='sales_order')await ensureSalesOrderView();
     if(t==='customer')await ensureCustomerView();
     const pool=await ensurePool();
-    let [rows]=await pool.query('SELECT * FROM `'+t+'` LIMIT ? OFFSET ?',[limit,offset]);
-    if(includeArchive){
-      try{
-        const arch=getArchiveDb();const base=getDb();
-        const [types]=await pool.query('SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[base,t]);
-        const type=(types&&types[0]&&types[0].TABLE_TYPE)||'BASE TABLE';
-        if(String(type).toUpperCase()!=='VIEW'){
-          if(rows.length<limit){
-            const need=limit-rows.length;
-            const [aRows]=await pool.query('SELECT * FROM `'+arch+'`.`'+t+'` LIMIT ? OFFSET ?',[need,offset]);
-            rows=rows.concat(aRows||[]);
-          }
-        }
-      }catch{}
-    }
+    const [rows]=await pool.query('SELECT * FROM `'+t+'` LIMIT ? OFFSET ?',[limit,offset]);
     ok(res,{table:t,rows})
   }catch(e){
     ok(res,{table:t,rows:[]})
   }
-  return
-}
-if(url.pathname==='/api/archive/data'){
-  const t=url.searchParams.get('table')||'';
-  if(!isValidName(t))return bad(res,'invalid table');
-  const limit=Math.min(1000,parseInt(url.searchParams.get('limit')||'200',10)||200);
-  const offset=Math.max(0,parseInt(url.searchParams.get('offset')||'0',10)||0);
-  try{
-    const pool=await ensurePool();const arch=getArchiveDb();
-    const [rows]=await pool.query('SELECT * FROM `'+arch+'`.`'+t+'` LIMIT ? OFFSET ?',[limit,offset]);
-    ok(res,{table:t,rows})
-  }catch(e){ok(res,{table:t,rows:[]})}
   return
 }
 if(url.pathname==='/api/count'){
