@@ -2,16 +2,43 @@ param(
   [string]$DbPort = "3307",
   [string]$ApiPort = "3200",
   [switch]$AllowDB,
-  [bool]$OpenBrowser = $true,
+  [object]$OpenBrowser = $true,
+  [string]$AdminPassword = "admin123",
   [switch]$Debug
 )
 $ErrorActionPreference = "Stop"
+$shouldOpenBrowser = $true
+function ConvertTo-Bool([object]$v,[bool]$default=$true){
+  if($null -eq $v){ return $default }
+  if($v -is [bool]){ return $v }
+  if($v -is [switch]){ return [bool]$v.IsPresent }
+  $s = [string]$v
+  if([string]::IsNullOrWhiteSpace($s)){ return $default }
+  $t = $s.Trim().ToLowerInvariant()
+  if($t -in @('1','true','t','yes','y','on','$true')){ return $true }
+  if($t -in @('0','false','f','no','n','off','$false')){ return $false }
+  return $default
+}
+try{ $shouldOpenBrowser = ConvertTo-Bool $OpenBrowser $true }catch{ $shouldOpenBrowser = $true }
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $root
 $logDir = Join-Path $root "logs"
 if(-not (Test-Path $logDir)){ New-Item -ItemType Directory -Path $logDir | Out-Null }
 $dbScript = Join-Path $root "scripts\start-db.ps1"
 if(-not (Test-Path $dbScript)){ Write-Error "start-db.ps1 not found at $dbScript"; exit 1 }
+$mysqldLocal1 = Join-Path $root "mariadb\bin\mysqld.exe"
+$mysqldLocal2 = Join-Path $root "mariadb\bin\mariadbd.exe"
+if((-not (Test-Path $mysqldLocal1)) -and (-not (Test-Path $mysqldLocal2))){
+  $setupMaria = Join-Path $root "scripts\setup-portable-mariadb.ps1"
+  if(Test-Path $setupMaria){
+    Write-Host "MariaDB binaries not found under .\\mariadb\\bin; setting up portable MariaDB..."
+    try{
+      & $setupMaria -Port ([int]$DbPort) -NoStart
+    }catch{
+      Write-Warning ("Portable MariaDB setup failed: {0}" -f $_)
+    }
+  }
+}
 Write-Host "Starting MariaDB on port $DbPort..."
 Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$dbScript`" -Port $DbPort" -WorkingDirectory $root
 function Test-PortReady($h,$p){
@@ -50,6 +77,31 @@ if($AllowDB){ Ensure-FirewallRule -name "SPUDS IMS DB $DbPort" -port $DbPort }
 if(-not (Test-IsAdmin)){
   Write-Warning "Firewall rules may not be added without Administrator rights. If remote access fails, run Start-IMS.cmd as Administrator."
 }
+function Ensure-AutoBackupTasks($rootPath,[string]$dbPort){
+  try{
+    $taskName = "SPUDS IMS Auto Backup"
+    $script = Join-Path $rootPath "scripts\backup-db.ps1"
+    if(-not (Test-Path $script)){ return }
+    $outDir = Join-Path $rootPath "backups"
+    $userId = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $args = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -OutDir `"$outDir`" -DbPort $dbPort -Compress"
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $args -WorkingDirectory $rootPath
+    $t1 = New-ScheduledTaskTrigger -Daily -At 12:00
+    $t2 = New-ScheduledTaskTrigger -Daily -At 18:00
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
+    $task = New-ScheduledTask -Action $action -Trigger @($t1,$t2) -Settings $settings -Principal $principal
+    try{
+      $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+      if($existing){ Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null }
+    }catch{}
+    Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
+    Write-Host ("Auto backup scheduled: {0} (12:00 and 18:00 daily) -> {1}" -f $taskName,$outDir)
+  }catch{
+    Write-Warning ("Could not set auto backup schedule: {0}" -f $_)
+  }
+}
+Ensure-AutoBackupTasks $root $DbPort
 function Stop-RunningNode($rootPath){
   try{
     $esc = [regex]::Escape($rootPath)
@@ -103,6 +155,9 @@ try{
     }
   }
   if($nodePathActual){ Write-Host ("Using Node runtime: {0} {1}" -f $nodePathActual,$nodeVer) }
+  if([string]::IsNullOrWhiteSpace($env:IMS_ADMIN_PASSWORD) -and [string]::IsNullOrWhiteSpace($env:IMS_PASSWORD) -and -not [string]::IsNullOrWhiteSpace($AdminPassword)){
+    $env:IMS_ADMIN_PASSWORD = $AdminPassword
+  }
   if($Debug){
     $env:MYSQL_PORT=$DbPort
     $env:PORT=$ApiPort
@@ -134,7 +189,7 @@ function Test-HttpHealth($url){
     return $r.StatusCode -eq 200
   }catch{ return $false }
 }
-if($OpenBrowser){
+if($shouldOpenBrowser){
   $base = "http://localhost:$ApiPort/"
   $ok = $false
   for($i=0;$i -lt 40;$i++){

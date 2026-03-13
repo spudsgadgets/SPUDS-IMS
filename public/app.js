@@ -1,5 +1,7 @@
 const themeBtn=document.getElementById('theme-btn')
 const modeBtn=document.getElementById('mode-btn')
+const API_BASE=(location.protocol==='file:'? 'http://localhost:3200' : '')
+function api(path){return API_BASE+path}
 function applyTheme(t){document.body.classList.toggle('dark',t==='dark');try{localStorage.setItem('theme',t)}catch{};if(themeBtn)themeBtn.textContent=t==='dark'?'Light':'Dark'}
 function applyMode(m){document.body.classList.remove('mobile','desktop');if(m==='mobile')document.body.classList.add('mobile');else if(m==='desktop')document.body.classList.add('desktop');try{localStorage.setItem('mode',m)}catch{};if(modeBtn)modeBtn.textContent=m==='mobile'?'Desktop':'Mobile'}
 let mSaved=null;try{mSaved=localStorage.getItem('mode')}catch{};applyMode(mSaved||(window.innerWidth<=768?'mobile':'desktop'))
@@ -26,6 +28,8 @@ const browseTable=document.getElementById('browse-table')
 const loadBtn=document.getElementById('load')
 const schemaEl=document.getElementById('schema')
 const dataEl=document.getElementById('data')
+const helpPrintBtn=document.getElementById('help-print')
+const helpManual=document.getElementById('help-manual')
 const logoImg=document.getElementById('brand-logo')
 const logoSelectBtn=document.getElementById('logo-select')
 const logoSelectText=document.getElementById('logo-select-text')
@@ -54,9 +58,18 @@ async function ensureVersionBadge(){
   }catch{}
 }
 ensureVersionBadge()
+function printUserManual(){
+  if(!helpManual)return
+  const w=window.open('','_blank','noopener,noreferrer')
+  if(!w)return
+  const title='SPUDS IMS — User Manual'
+  const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+title+'</title><link rel="stylesheet" href="./styles.css"><style>body{background:#fff;color:#000}a{color:#000}#print-root{max-width:900px;margin:24px auto;padding:0 12px}@media print{.no-print{display:none!important}body{background:#fff;color:#000}.panel{border:none}.section-title{color:#000}}</style></head><body><div class="no-print" style="display:flex;gap:10px;align-items:center;justify-content:space-between;max-width:900px;margin:16px auto 0;padding:0 12px"><div style="font-weight:600">'+title+'</div><button id="doPrint" class="btn">Print</button></div><div id="print-root" class="panel"><div>'+helpManual.innerHTML+'</div></div><script>document.getElementById("doPrint").addEventListener("click",()=>window.print());window.addEventListener("load",()=>setTimeout(()=>window.print(),250));<\/script></body></html>'
+  w.document.open()
+  w.document.write(html)
+  w.document.close()
+}
+if(helpPrintBtn)helpPrintBtn.addEventListener('click',printUserManual)
 if(file){file.addEventListener('change',()=>{if(file.files&&file.files[0]&&!tbl.value){const n=file.files[0].name.replace(/\.csv$/i,'').replace(/[^a-z0-9_]+/ig,'_');tbl.value=n||'inventory'}})}
-const API_BASE=(location.protocol==='file:'? 'http://localhost:3200' : '');
-function api(path){return API_BASE+path}
 function getAuthHeaders(){let h={};try{const t=localStorage.getItem('ims_token');if(t)h['Authorization']='Bearer '+t}catch{};return h}
 const authUserEl=document.getElementById('auth-user')
 const authBtnEl=document.getElementById('auth-btn')
@@ -130,14 +143,54 @@ const restoreBtn=document.getElementById('db-restore')
 const restoreStatus=document.getElementById('db-restore-status')
 const normalizeBtn=document.getElementById('db-normalize')
 const normalizeStatus=document.getElementById('db-normalize-status')
+const dedupeBtn=document.getElementById('db-dedupe')
+const dedupeStatus=document.getElementById('db-dedupe-status')
+const clearDbBtn=document.getElementById('db-clear')
+const clearDbStatus=document.getElementById('db-clear-status')
 const selftestBtn=document.getElementById('run-selftest')
 const selftestHost=document.getElementById('selftest-result')
-if(backupBtn)backupBtn.addEventListener('click',async()=>{try{if(restoreStatus)restoreStatus.textContent='Creating backup...';const r=await fetch(api('/api/backup'));if(!r.ok){const j=await r.json().catch(()=>({}));if(restoreStatus)restoreStatus.textContent='Backup error: '+(j.error||r.status);return}const disp=r.headers.get('Content-Disposition')||'';const m=/filename=\"?([^\";]+)\"?/i.exec(disp);const name=m?m[1]:'backup.zip';const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(url);try{document.body.removeChild(a)}catch{}},1000);if(restoreStatus)restoreStatus.textContent='Backup downloaded'}catch(e){if(restoreStatus){const hint=(location.protocol==='file:'?' (open http://localhost:3200/ instead of the file)':'');restoreStatus.textContent='Backup error: '+(e&&e.message||e)+hint}}})
 if(restoreBtn)restoreBtn.addEventListener('click',async()=>{const picker=document.createElement('input');picker.type='file';picker.accept='.sql,.zip';picker.style.display='none';picker.addEventListener('change',async()=>{if(!picker.files||!picker.files[0]){if(restoreStatus)restoreStatus.textContent='Choose a file';return}const f=picker.files[0];if(restoreStatus)restoreStatus.textContent='Restoring...';const isZip=(/\.zip$/i.test(f.name))||f.type==='application/zip';let r;if(isZip){const buf=await f.arrayBuffer();r=await fetch(api('/api/restore'),{method:'POST',headers:{'Content-Type':'application/zip'},body:new Uint8Array(buf)})}else{const text=await f.text();r=await fetch(api('/api/restore'),{method:'POST',headers:{'Content-Type':'text/plain'},body:text})}const j=await r.json().catch(()=>({}));if(restoreStatus)restoreStatus.textContent=r.ok?'Restore completed':('Restore error: '+(j.error||r.status))});document.body.appendChild(picker);picker.click();setTimeout(()=>{try{document.body.removeChild(picker)}catch{}},1000)})
-async function downloadBackup(){try{if(restoreStatus)restoreStatus.textContent='Creating backup...';const r=await fetch(api('/api/backup'));if(!r.ok){const j=await r.json().catch(()=>({}));if(restoreStatus)restoreStatus.textContent='Backup error: '+(j.error||r.status);return}const disp=r.headers.get('Content-Disposition')||'';const m=/filename=\\\"?([^\\\";]+)\\\"?/i.exec(disp);const name=m?m[1]:'backup.zip';const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(url);try{document.body.removeChild(a)}catch{}},1000);if(restoreStatus)restoreStatus.textContent='Backup downloaded'}catch(e){if(restoreStatus){const hint=(location.protocol==='file:'?' (open http://localhost:3200/ instead of the file)':'');restoreStatus.textContent='Backup error: '+(e&&e.message||e)+hint}}}
+function defaultBackupName(){
+  const ts=new Date()
+  const pad=n=>String(n).padStart(2,'0')
+  return 'spuds-ims-backup-'+ts.getFullYear()+'-'+pad(ts.getMonth()+1)+'-'+pad(ts.getDate())+'-'+pad(ts.getHours())+pad(ts.getMinutes())+'.zip'
+}
+async function downloadBackup(){try{if(restoreStatus)restoreStatus.textContent='Creating backup...';const r=await fetch(api('/api/backup'));if(!r.ok){const j=await r.json().catch(()=>({}));if(restoreStatus)restoreStatus.textContent='Backup error: '+(j.error||r.status);return}const disp=r.headers.get('Content-Disposition')||'';const m=/filename=\"?([^\";]+)\"?/i.exec(disp);const name=m?m[1]:defaultBackupName();const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(url);try{document.body.removeChild(a)}catch{}},1000);if(restoreStatus)restoreStatus.textContent='Backup downloaded'}catch(e){if(restoreStatus){const hint=(location.protocol==='file:'?' (open http://localhost:3200/ instead of the file)':'');restoreStatus.textContent='Backup error: '+(e&&e.message||e)+hint}}}
 if(backupBtn)backupBtn.addEventListener('click',downloadBackup)
 async function normalizeCollationsAction(){if(normalizeStatus)normalizeStatus.textContent='Normalizing...';try{const r=await fetch(api('/api/normalize-collations'),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){if(normalizeStatus)normalizeStatus.textContent='Normalize error: '+(j.error||r.status);return}const changed=Array.isArray(j.changed)?j.changed.length:0;const failed=Array.isArray(j.failed)?j.failed.length:0;if(normalizeStatus)normalizeStatus.textContent='Updated '+changed+' tables'+(failed?(' • Failed: '+failed):'')+'.';if(!failed){await downloadBackup()}}catch(e){if(normalizeStatus)normalizeStatus.textContent='Normalize error: '+(e&&e.message||e)}}
 if(normalizeBtn)normalizeBtn.addEventListener('click',normalizeCollationsAction)
+async function fixDuplicateRecordsAction(){
+  try{
+    if(dedupeStatus)dedupeStatus.textContent=''
+    const ok1=confirm('This will remove exact duplicate rows from the database (keeps one copy). Continue?')
+    if(!ok1){if(dedupeStatus)dedupeStatus.textContent='Cancelled';return}
+    const pw=prompt('Enter admin password to fix duplicates:','')||''
+    if(dedupeStatus)dedupeStatus.textContent='Fixing duplicates...'
+    const r=await fetch(api('/api/db/fix-duplicates'),{method:'POST',headers:{'Content-Type':'application/json',...getAuthHeaders()},credentials:'include',body:JSON.stringify({password:pw})})
+    const j=await r.json().catch(()=>({}))
+    if(!r.ok){if(dedupeStatus)dedupeStatus.textContent='Fix duplicates error: '+(j.error||r.status);return}
+    const total=Number(j.deletedTotal)||0
+    if(dedupeStatus)dedupeStatus.textContent='Removed '+total+' duplicate row'+(total===1?'':'s')
+  }catch(e){if(dedupeStatus)dedupeStatus.textContent='Fix duplicates error: '+(e&&e.message||e)}
+}
+if(dedupeBtn)dedupeBtn.addEventListener('click',fixDuplicateRecordsAction)
+async function clearDatabaseAction(){
+  try{
+    if(clearDbStatus)clearDbStatus.textContent=''
+    const ok1=confirm('This will permanently erase ALL data in the database. Continue?')
+    if(!ok1){if(clearDbStatus)clearDbStatus.textContent='Cancelled';return}
+    const phrase=prompt('Type CLEAR to confirm database erase:','')
+    if(String(phrase||'').trim().toUpperCase()!=='CLEAR'){if(clearDbStatus)clearDbStatus.textContent='Cancelled';return}
+    const pw=prompt('Enter admin password to clear database:','')||''
+    if(clearDbStatus)clearDbStatus.textContent='Clearing...'
+    const r=await fetch(api('/api/db/clear'),{method:'POST',headers:{'Content-Type':'application/json',...getAuthHeaders()},credentials:'include',body:JSON.stringify({confirm:'CLEAR',password:pw})})
+    const j=await r.json().catch(()=>({}))
+    if(!r.ok){if(clearDbStatus)clearDbStatus.textContent='Clear error: '+(j.error||r.status);return}
+    if(clearDbStatus)clearDbStatus.textContent='Database cleared'
+    setTimeout(()=>{try{location.reload()}catch{}},500)
+  }catch(e){if(clearDbStatus)clearDbStatus.textContent='Clear error: '+(e&&e.message||e)}
+}
+if(clearDbBtn)clearDbBtn.addEventListener('click',clearDatabaseAction)
 async function runSelftest(){if(selftestHost)selftestHost.textContent='Running...';try{const r=await fetch(api('/api/selftest'));const j=await r.json().catch(()=>({}));if(!r.ok){if(selftestHost)selftestHost.textContent='Diagnostics error: '+(j.error||r.status);return}if(selftestHost)selftestHost.innerHTML='';const container=document.createElement('div');const table=document.createElement('table');table.className='diag-table';const tbody=document.createElement('tbody');function addStatusRow(label,ok,extra){const tr=document.createElement('tr');const td1=document.createElement('td');td1.textContent=label;const td2=document.createElement('td');const span=document.createElement('span');span.className=ok?'status-ok':'status-bad';span.textContent=ok?'OK':'Issue';td2.appendChild(span);if(extra){const sp=document.createElement('span');sp.style.marginLeft='8px';sp.textContent=extra;td2.appendChild(sp)}tr.appendChild(td1);tr.appendChild(td2);tbody.appendChild(tr)}const views=j.views||{};const tables=j.tables||{};const viewsMissing=Object.keys(views).filter(k=>!views[k]);const tablesMissing=Object.keys(tables).filter(k=>!tables[k]);const viewsOk=viewsMissing.length===0;const tablesOk=tablesMissing.length===0;addStatusRow('Database',!!j.db);addStatusRow('Views',viewsOk,viewsOk?'':('missing: '+viewsMissing.join(', ')));addStatusRow('Tables',tablesOk,tablesOk?'':('missing: '+tablesMissing.join(', ')));addStatusRow('API Port',!!j.apiPort,String(j.apiPort||''));addStatusRow('MySQL Port',!!j.mysqlPort,String(j.mysqlPort||''));const ipsRow=document.createElement('tr');const ipsK=document.createElement('td');ipsK.textContent='IPs';const ipsV=document.createElement('td');ipsV.className='diag-ips';const ips=Array.isArray(j.ips)?j.ips:[];if(ips.length){ips.forEach(ip=>{const a=document.createElement('a');a.href='http://'+ip+':'+(j.apiPort||3200)+'/';a.textContent=ip;ipsV.appendChild(a)})}else{const span=document.createElement('span');span.className='status-bad';span.textContent='No non-local IPv4s detected';ipsV.appendChild(span)}ipsRow.appendChild(ipsK);ipsRow.appendChild(ipsV);tbody.appendChild(ipsRow);table.appendChild(tbody);container.appendChild(table);const hints=[];if(!j.db)hints.push('Database connection failed. Start MariaDB and ensure the configured port is reachable.');if(!viewsOk)hints.push('Missing views: '+viewsMissing.join(', ')+'. Ensure base tables exist and the DB user can CREATE VIEW.');if(!tablesOk)hints.push('Missing tables: '+tablesMissing.join(', ')+'. Save a Customer or Inventory item to auto-create, or restart the app.');if(!ips.length)hints.push('No reachable IPv4 address. Check NIC configuration and firewall.');const fwHint='Allow inbound TCP '+(j.apiPort||3200)+' on Windows Firewall and any third-party firewall.';hints.push(fwHint);if(hints.length){const hTitle=document.createElement('div');hTitle.className='section-title';hTitle.textContent='Fix Hints';container.appendChild(hTitle);const ul=document.createElement('ul');hints.forEach(t=>{const li=document.createElement('li');li.textContent=t;ul.appendChild(li)});container.appendChild(ul)}if(selftestHost)selftestHost.appendChild(container)}catch(e){if(selftestHost)selftestHost.textContent='Diagnostics error: '+(e&&e.message||e)}}
 if(selftestBtn)selftestBtn.addEventListener('click',runSelftest)
 // Vendor page logic

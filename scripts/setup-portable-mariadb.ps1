@@ -1,6 +1,7 @@
 param(
   [string]$Version = "10.11.8",
-  [int]$Port = 3307
+  [int]$Port = 3307,
+  [switch]$NoStart
 )
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -93,19 +94,21 @@ sql_mode=
 port=$Port
 "@ | Set-Content -Path $myIni -Encoding ascii
 }
-Write-Host "Starting portable MariaDB on port $Port ..."
-Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$((Join-Path $root 'scripts\start-db.ps1'))`" -Port $Port" -WorkingDirectory $root
-function Test-Port($h,$p){
-  try{
-    $client = New-Object System.Net.Sockets.TcpClient
-    $async = $client.BeginConnect($h,$p,$null,$null)
-    $done = $async.AsyncWaitHandle.WaitOne(2000)
-    if($done -and $client.Connected){$client.Close();return $true}
-    $client.Close();return $false
-  }catch{return $false}
-}
-for($i=0;$i -lt 20;$i++){
-  if(Test-Port "127.0.0.1" $Port){ Write-Host "MariaDB is up on port $Port"; break }
-  Start-Sleep -Milliseconds 500
+if(-not $NoStart){
+  Write-Host "Starting portable MariaDB on port $Port ..."
+  Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$((Join-Path $root 'scripts\start-db.ps1'))`" -Port $Port" -WorkingDirectory $root
+  function Test-Port($h,$p){
+    try{
+      $client = New-Object System.Net.Sockets.TcpClient
+      $async = $client.BeginConnect($h,$p,$null,$null)
+      $done = $async.AsyncWaitHandle.WaitOne(2000)
+      if($done -and $client.Connected){$client.Close();return $true}
+      $client.Close();return $false}
+    catch{return $false}
+  }
+  for($i=0;$i -lt 20;$i++){
+    if(Test-Port "127.0.0.1" $Port){ Write-Host "MariaDB is up on port $Port"; break }
+    Start-Sleep -Milliseconds 500
+  }
 }
 Write-Host "Setup complete."

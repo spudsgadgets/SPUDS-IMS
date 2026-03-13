@@ -16,6 +16,7 @@
     <a class="nav-btn" data-section="inventory" href="#section-inventory">Inventory</a>
     <a class="nav-btn" data-section="sales-order" href="#section-sales-order">Sales Order</a>
     <a class="nav-btn" data-section="customer" href="#section-customer">Customer</a>
+    <a class="nav-btn" data-section="help" href="#section-help">Help</a>
     <a class="nav-btn" data-section="settings" href="#section-settings">Settings</a>
   </nav>
   <div class="actions">
@@ -536,6 +537,53 @@
       </section>
     </div>
   </section>
+  <section id="section-help" class="panel section">
+    <h2>Help</h2>
+    <div class="row">
+      <button id="help-print" class="btn">Print User Manual</button>
+    </div>
+    <div id="help-manual">
+      <div class="section-title">User Manual</div>
+      <div class="status">SPUDS IMS quick guide. Use Print User Manual to print this page.</div>
+      <div class="section-title">1) Introduction</div>
+      <ul>
+        <li>SPUDS IMS is a lightweight inventory and order tracking tool with modules for Vendors, Purchase Orders, Inventory, Sales Orders, Customers, and Settings.</li>
+        <li>Each module uses the same layout: Search/List on the left, record details on the right.</li>
+      </ul>
+      <div class="section-title">2) Features by Module</div>
+      <ul>
+        <li>Dashboard: Quick counts and at-a-glance status.</li>
+        <li>Vendor: Search vendors and review vendor details.</li>
+        <li>Purchase Order: Search orders, view/edit lines, and track totals.</li>
+        <li>Inventory: Search products, manage locations/quantities, view vendors, BOM, and movement/history.</li>
+        <li>Sales Order: Search orders, view/edit lines, and track totals.</li>
+        <li>Customer: Search customers, edit extra info, and view order history.</li>
+        <li>Settings: Logo management and database maintenance tools.</li>
+      </ul>
+      <div class="section-title">3) Installation</div>
+      <ul>
+        <li>Start the application using the provided Start/Stop scripts. The server will display accessible URLs.</li>
+        <li>Open the app in a browser using the URL from the server output (example: http://localhost:3200/).</li>
+        <li>Log in using the configured credentials (if enabled).</li>
+      </ul>
+      <div class="section-title">4) User Instructions</div>
+      <ul>
+        <li>Navigation: Use the top tabs to switch modules.</li>
+        <li>Search: Use the left-side filters in each module to find records quickly.</li>
+        <li>Edit: Select a record from the list, update fields on the right, then click Save where available.</li>
+        <li>Items: For Purchase Orders and Sales Orders, use Add Row / Delete Row under Items to manage lines.</li>
+        <li>Settings: Use Backup/Restore for database files; use maintenance tools only when needed.</li>
+      </ul>
+      <div class="section-title">5) Troubleshooting</div>
+      <ul>
+        <li>Cannot open the app: Ensure the server is running and use the correct URL shown in the terminal.</li>
+        <li>Database connection failed: Start MariaDB and verify the DB port is reachable.</li>
+        <li>Restore problems or strange characters: Run Normalize Collations, then try again.</li>
+        <li>Duplicate rows: Use Fix Duplicate Records (keeps one copy of exact duplicates).</li>
+        <li>Admin tools rejected: Ensure the admin password is configured and you are logged in.</li>
+      </ul>
+    </div>
+  </section>
   <section id="section-settings" class="panel section">
     <h2>Settings</h2>
     <div class="row">
@@ -546,12 +594,16 @@
     <div class="row">
       <button id="db-backup">Backup Database</button>
       <button id="db-restore">Restore Database</button>
+      <button id="db-clear">Clear Database</button>
     </div>
     <div id="db-restore-status" class="status"></div>
+    <div id="db-clear-status" class="status"></div>
     <div class="row">
       <button id="db-normalize">Normalize Collations</button>
+      <button id="db-dedupe">Fix Duplicate Records</button>
     </div>
     <div id="db-normalize-status" class="status"></div>
+    <div id="db-dedupe-status" class="status"></div>
     <hr>
     <div class="row">
       <button id="run-selftest">Run Diagnostics</button>

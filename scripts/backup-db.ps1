@@ -22,8 +22,9 @@ $dumpExe = $null
 foreach($c in $dumpCandidates){ if(Test-Path $c){ $dumpExe = $c; break } }
 if(-not $dumpExe){ Write-Error "mariadb-dump/mysqldump not found. Ensure mariadb\\bin is present or in PATH."; exit 1 }
 
-$ts = Get-Date -Format "yyyyMMdd-HHmmss"
-$sqlName = "$Database-$ts.sql"
+$ts = Get-Date -Format "yyyy-MM-dd-HHmm"
+$base = "spuds-ims-backup-$ts"
+$sqlName = "$base.sql"
 $sqlPath = Join-Path $OutDir $sqlName
 
 $args = @("--host=$DbHost","--port=$DbPort","--user=$User","--single-transaction","--quick","--routines","--events","--default-character-set=utf8mb4","--databases",$Database)

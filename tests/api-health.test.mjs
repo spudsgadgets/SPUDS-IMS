@@ -57,7 +57,7 @@ async function tryHealth(port){
   }
 }
 function startServer(port){
-  const env={...process.env,MYSQL_PORT:'3307',PORT:String(port)}
+  const env={...process.env,MYSQL_PORT:'3307',MYSQL_DATABASE:'ims_test',PORT:String(port)}
   const child=spawn(process.execPath,['server.js'],{env,stdio:['ignore','pipe','pipe']})
   return child
 }

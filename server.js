@@ -23,6 +23,7 @@ function cors(req,res){
   }
   res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization')
+  res.setHeader('Access-Control-Expose-Headers','Content-Disposition')
 }
 function json(res,code,obj){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(obj))}
 function ok(res,obj){json(res,200,obj)}
@@ -311,6 +312,89 @@ if(url.pathname==='/api/normalize-collations'&&req.method==='POST'){
   }catch(e){json(res,500,{error:String(e&&e.message||e)})}
   return
 }
+if(url.pathname==='/api/db/clear'&&req.method==='POST'){
+  const s=__getSession(req)
+  if(!s||!s.user){unauthorized(res,'not logged in');return}
+  const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
+    try{
+      const body=Buffer.concat(chunks).toString('utf8')||'{}'
+      const payload=JSON.parse(body||'{}')
+      const confirm=String(payload&&payload.confirm||'').trim().toUpperCase()
+      const password=String(payload&&payload.password||'')
+      if(confirm!=='CLEAR'){bad(res,'confirmation required');return}
+      const adminPass=String(process.env.IMS_ADMIN_PASSWORD||process.env.IMS_PASSWORD||process.env.ADMIN_PASSWORD||'')
+      if(!adminPass){bad(res,'admin password not configured (set IMS_ADMIN_PASSWORD or IMS_PASSWORD)');return}
+      if(password!==adminPass){unauthorized(res,'invalid admin password');return}
+      if(!mysql)throw new Error('mysql2 not installed')
+      const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims',waitForConnections:true,connectionLimit:5,queueLimit:0}
+      const db=String(cfg.database||'ims')
+      if(!/^[a-zA-Z0-9_]+$/.test(db)){bad(res,'invalid database name');return}
+      const cfg2={...cfg};delete cfg2.database
+      const bootstrap=mysql.createPool(cfg2)
+      try{
+        await bootstrap.query('DROP DATABASE IF EXISTS `'+db+'`')
+        await bootstrap.query('CREATE DATABASE `'+db+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      }finally{
+        try{await bootstrap.end()}catch{}
+      }
+      try{if(global.__pool)await global.__pool.end()}catch{}
+      global.__pool=mysql.createPool(cfg)
+      const pool=await ensurePool()
+      await pool.query('CREATE TABLE IF NOT EXISTS `inflow_product` (id BIGINT AUTO_INCREMENT PRIMARY KEY, `Name` TEXT, `Category` TEXT, `Description` TEXT, `UnitPrice` DOUBLE NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      await pool.query('CREATE TABLE IF NOT EXISTS `inflow_inventory` (id BIGINT AUTO_INCREMENT PRIMARY KEY, `Item` TEXT, `Location` TEXT, `Sublocation` TEXT, `Quantity` DOUBLE NULL) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      await pool.query('CREATE TABLE IF NOT EXISTS `inflow_bom` (id BIGINT AUTO_INCREMENT PRIMARY KEY, `FinishedItem` TEXT) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      await pool.query('CREATE TABLE IF NOT EXISTS `inflow_vendor` (id BIGINT AUTO_INCREMENT PRIMARY KEY) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      await pool.query('CREATE TABLE IF NOT EXISTS `inflow_purchaseorder` (id BIGINT AUTO_INCREMENT PRIMARY KEY) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      await pool.query('CREATE TABLE IF NOT EXISTS `inflow_salesorder` (id BIGINT AUTO_INCREMENT PRIMARY KEY) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      await pool.query('CREATE TABLE IF NOT EXISTS `inflow_customer` (id BIGINT AUTO_INCREMENT PRIMARY KEY) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      try{await ensureInventoryView();await ensureVendorView();await ensurePurchaseOrderView();await ensureSalesOrderView();await ensureCustomerView()}catch{}
+      ok(res,{ok:true,database:db})
+    }catch(e){
+      json(res,400,{error:String(e&&e.message||e)})
+    }
+  })
+  return
+}
+if(url.pathname==='/api/db/fix-duplicates'&&req.method==='POST'){
+  const s=__getSession(req)
+  if(!s||!s.user){unauthorized(res,'not logged in');return}
+  const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
+    try{
+      const body=Buffer.concat(chunks).toString('utf8')||'{}'
+      const payload=JSON.parse(body||'{}')
+      const password=String(payload&&payload.password||'')
+      const adminPass=String(process.env.IMS_ADMIN_PASSWORD||process.env.IMS_PASSWORD||process.env.ADMIN_PASSWORD||'')
+      if(!adminPass){bad(res,'admin password not configured (set IMS_ADMIN_PASSWORD or IMS_PASSWORD)');return}
+      if(password!==adminPass){unauthorized(res,'invalid admin password');return}
+      const pool=await ensurePool()
+      const targets=['inflow_product','inflow_inventory','inflow_bom','inflow_vendor','inflow_customer','inflow_purchaseorder','inflow_salesorder','inventory_tracking','inventory_bom','inventory_vendor','inventory_extra','customer_extra']
+      let deletedTotal=0
+      const results=[]
+      for(const table of targets){
+        try{
+          const [cols]=await pool.query('SHOW COLUMNS FROM `'+table+'`')
+          const names=(cols||[]).map(c=>String(c.Field||'')).filter(Boolean)
+          if(!names.includes('id')){results.push({table,deleted:0,skipped:true});continue}
+          const groupCols=names.filter(n=>n!=='id')
+          if(!groupCols.length){results.push({table,deleted:0,skipped:true});continue}
+          const groupSql=groupCols.map(c=>'`'+c+'`').join(',')
+          const onSql=groupCols.map(c=>'t.`'+c+'` <=> d.`'+c+'`').join(' AND ')
+          const delSql='DELETE t FROM `'+table+'` t JOIN (SELECT MIN(id) AS keepId,'+groupSql+' FROM `'+table+'` GROUP BY '+groupSql+' HAVING COUNT(*)>1) d ON '+onSql+' WHERE t.id<>d.keepId'
+          const [del]=await pool.query(delSql)
+          const deleted=Number(del&&del.affectedRows)||0
+          deletedTotal+=deleted
+          results.push({table,deleted})
+        }catch(e){
+          results.push({table,deleted:0,error:String(e&&e.message||e)})
+        }
+      }
+      ok(res,{ok:true,deletedTotal,tables:results})
+    }catch(e){
+      json(res,400,{error:String(e&&e.message||e)})
+    }
+  })
+  return
+}
 if(url.pathname==='/api/inventory/tracking/validate'&&req.method==='POST'){
   const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
     try{
@@ -415,7 +499,7 @@ if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.me
         })
       })
     }
-    const ts=new Date();const pad=n=>String(n).padStart(2,'0');const base=`${cfg.database}-${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;const fnSql=base+'.sql';const fnZip=base+'.zip'
+    const ts=new Date();const pad=n=>String(n).padStart(2,'0');const base=`spuds-ims-backup-${ts.getFullYear()}-${pad(ts.getMonth()+1)}-${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}`;const fnSql=base+'.sql';const fnZip=base+'.zip'
     if(req.method==='HEAD'){res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="'+fnZip+'"'});res.end();return}
     let dumpOut=null;let lastErr=null
     const preferNode=(process.env.SPUDS_BACKUP_MODE||'node').toLowerCase()==='node';
@@ -677,6 +761,36 @@ if(url.pathname==='/api/selftest'&&req.method==='GET'){
 }
 notFound(res)
 }
-async function serveStatic(req,res){const u=new URL(req.url,'http://localhost');let p=decodeURIComponent(u.pathname);if(p==='/')p='/login.html';else if(p.toLowerCase()==='/login')p='/login.html';let fp=PUBLIC+p;try{let st=await stat(fp);if(st.isDirectory()){const index=path.join(fp,'index.html');st=await stat(index);fp=index}const data=await readFile(fp);const ext=path.extname(fp).toLowerCase();const map={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'};const headers={'Content-Type':map[ext]||'application/octet-stream'};if(ext==='.html'){headers['Cache-Control']='no-store'}res.writeHead(200,headers);res.end(data)}catch{notFound(res)}}
+async function serveStatic(req,res){
+  const u=new URL(req.url,'http://localhost')
+  let p=decodeURIComponent(u.pathname)
+  if(p==='/')p='/login.html'
+  else if(p.toLowerCase()==='/login')p='/login.html'
+  const pLower=p.toLowerCase()
+  if(pLower==='/index.html'||pLower==='/index'){
+    const s=__getSession(req)
+    if(!s||!s.user){
+      res.writeHead(302,{Location:'/login.html'})
+      res.end()
+      return
+    }
+  }
+  let fp=PUBLIC+p
+  try{
+    let st=await stat(fp)
+    if(st.isDirectory()){
+      const index=path.join(fp,'index.html')
+      st=await stat(index)
+      fp=index
+    }
+    const data=await readFile(fp)
+    const ext=path.extname(fp).toLowerCase()
+    const map={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'}
+    const headers={'Content-Type':map[ext]||'application/octet-stream'}
+    if(ext==='.html'){headers['Cache-Control']='no-store'}
+    res.writeHead(200,headers)
+    res.end(data)
+  }catch{notFound(res)}
+}
 const server=http.createServer(async (req,res)=>{try{if(req.url.startsWith('/api/')){await handleAPI(req,res)}else{await serveStatic(req,res)}}catch(e){json(res,500,{error:String(e&&e.message||e)})}})
 server.listen(PORT,'0.0.0.0',()=>{})

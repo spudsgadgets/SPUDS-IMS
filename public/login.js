@@ -30,8 +30,16 @@ window.doLogin=doLogin
 if(btn)btn.addEventListener('click',doLogin)
 document.addEventListener('keydown',(e)=>{if(e.key==='Enter')doLogin()})
 function getAuthHeaders(){let h={};try{const t=localStorage.getItem('ims_token');if(t)h['Authorization']='Bearer '+t}catch{};return h}
-async function checkMe(){try{const r=await fetch(api('/api/auth/me'),{credentials:'include',headers:getAuthHeaders()});const j=await r.json().catch(()=>({}));if(r.ok&&j.user){location.href='./index.html'}}catch{}}
-;(function(){try{const q=new URLSearchParams(location.search);const skip=q.has('stay')||q.has('force')||q.get('noredirect')==='1';if(!skip)checkMe()}catch{}})()
+async function checkMe(){
+  try{
+    const r=await fetch(api('/api/auth/me'),{credentials:'include',headers:getAuthHeaders()})
+    const j=await r.json().catch(()=>({}))
+    if(r.ok&&j&&j.user&&j.user.name){
+      if(statusEl)statusEl.textContent='Already logged in as '+String(j.user.name||'')
+    }
+  }catch{}
+}
+checkMe()
 if(logoutBtn)logoutBtn.addEventListener('click',async()=>{
   if(statusEl)statusEl.textContent='Logging out...'
   try{
