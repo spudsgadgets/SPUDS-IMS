@@ -2,6 +2,7 @@ param([string]$Port = "3307")
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $root
+$mariaRoot = Join-Path $root "mariadb"
 $myIni = Join-Path $root "local-mariadb\my.ini"
 $dataDir = Join-Path $root "local-mariadb\data"
 $mysqldCandidates = @()
@@ -30,4 +31,4 @@ if($needsInit){
   & $installer @initArgs
 }
 Write-Host "Starting MariaDB from $mysqld with $myIni on port $Port"
-& $mysqld "--defaults-file=$myIni" "--port=$Port"
+& $mysqld "--defaults-file=$myIni" "--basedir=$mariaRoot" "--datadir=$dataDir" "--port=$Port" "--bind-address=127.0.0.1" "--console"

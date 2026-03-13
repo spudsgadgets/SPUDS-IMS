@@ -15,7 +15,9 @@ ensureVersion()
 async function doLogin(){
   if(statusEl)statusEl.textContent='Logging in...'
   try{
-    const payload={username:String(u?.value||'').trim(),password:String(p?.value||''),remember:!!(remember&&remember.checked)}
+    const username=String(u?.value||'').trim()
+    const password=String(p?.value||'')
+    const payload={username,password,remember:!!(remember&&remember.checked)}
     const r=await fetch(api('/api/auth/login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'include'})
     const j=await r.json().catch(()=>({}))
     if(!r.ok){if(statusEl)statusEl.textContent='Login error: '+(j.error||r.status);return}
