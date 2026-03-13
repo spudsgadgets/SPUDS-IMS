@@ -668,7 +668,8 @@ if(url.pathname==='/api/selftest'&&req.method==='GET'){
       tables.customer_extra=tset.has('customer_extra');
     }catch{}
     const nets=os.networkInterfaces();const ips=[];for(const k of Object.keys(nets||{})){for(const ni of (nets[k]||[])){if(ni&&ni.family==='IPv4'&&ni.address!=='127.0.0.1'&&!String(ni.address||'').startsWith('169.254.'))ips.push(ni.address)}}ips.sort();
-    ok(res,{db:dbOk,views,tables,ips,apiPort:PORT,mysqlPort:process.env.MYSQL_PORT||null})
+    const mysqlPort=parseInt(process.env.MYSQL_PORT||'3307',10)||3307
+    ok(res,{db:dbOk,views,tables,ips,apiPort:PORT,mysqlPort})
   }catch(e){
     json(res,500,{error:String(e&&e.message||e)})
   }
