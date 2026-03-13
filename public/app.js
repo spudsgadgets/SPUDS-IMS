@@ -13,7 +13,8 @@ window.addEventListener('load',__normalizeAllInputs)
 // navigation
 const navButtons=[...document.querySelectorAll('.nav-btn')]
 const sections=[...document.querySelectorAll('.section')]
-function showSection(id){sections.forEach(s=>s.classList.toggle('section-active',s.id===('section-'+id)));navButtons.forEach(b=>b.classList.toggle('active',b.dataset.section===id));try{history.replaceState(null,'','#section-'+id)}catch{};if(id==='inventory')initInventoryPage();if(id==='vendor')initVendorPage();if(id==='purchase-order')initPurchaseOrderPage();if(id==='sales-order')initSalesOrderPage();if(id==='customer')initCustomerPage()}
+let __currentSection='dashboard'
+function showSection(id){__currentSection=id;sections.forEach(s=>s.classList.toggle('section-active',s.id===('section-'+id)));navButtons.forEach(b=>b.classList.toggle('active',b.dataset.section===id));try{history.replaceState(null,'','#section-'+id)}catch{};if(id==='inventory')initInventoryPage();if(id==='vendor')initVendorPage();if(id==='purchase-order')initPurchaseOrderPage();if(id==='sales-order')initSalesOrderPage();if(id==='customer')initCustomerPage();const gs=document.getElementById('global-search');if(gs&&gs.value)applyGlobalSearch(gs.value)}
 navButtons.forEach(b=>b.addEventListener('click',(e)=>{e.preventDefault();showSection(b.dataset.section)}))
 // default to dashboard
 showSection('dashboard')
@@ -56,6 +57,58 @@ ensureVersionBadge()
 if(file){file.addEventListener('change',()=>{if(file.files&&file.files[0]&&!tbl.value){const n=file.files[0].name.replace(/\.csv$/i,'').replace(/[^a-z0-9_]+/ig,'_');tbl.value=n||'inventory'}})}
 const API_BASE=(location.protocol==='file:'? 'http://localhost:3200' : '');
 function api(path){return API_BASE+path}
+function getAuthHeaders(){let h={};try{const t=localStorage.getItem('ims_token');if(t)h['Authorization']='Bearer '+t}catch{};return h}
+const authUserEl=document.getElementById('auth-user')
+const authBtnEl=document.getElementById('auth-btn')
+let __authName=''
+async function refreshAuthUI(){
+  try{
+    const r=await fetch(api('/api/auth/me'),{credentials:'include',headers:getAuthHeaders()})
+    const j=await r.json().catch(()=>({}))
+    if(r.ok&&j&&j.user&&j.user.name){
+      __authName=String(j.user.name||'').trim()
+      if(authUserEl){
+        const u=__authName
+        authUserEl.textContent=u?((u.toUpperCase())+' ('+(u.toLowerCase())+')'):''
+      }
+      if(authBtnEl)authBtnEl.textContent='Logout'
+      return
+    }
+  }catch{}
+  __authName=''
+  if(authUserEl)authUserEl.textContent=''
+  if(authBtnEl)authBtnEl.textContent='Login'
+}
+async function doLogout(){
+  try{await fetch(api('/api/auth/logout'),{method:'POST',credentials:'include',headers:getAuthHeaders()})}catch{}
+  try{localStorage.removeItem('ims_token')}catch{}
+  await refreshAuthUI()
+}
+if(authBtnEl)authBtnEl.addEventListener('click',async()=>{
+  if(__authName){await doLogout();location.href='./login.html';return}
+  location.href='./login.html'
+})
+refreshAuthUI()
+const globalSearchEl=document.getElementById('global-search')
+function applyGlobalSearch(q){
+  const v=String(q||'')
+  function setInput(id,val){
+    const el=document.getElementById(id)
+    if(!el)return
+    el.value=val
+    try{el.dispatchEvent(new Event('input',{bubbles:true}))}catch{}
+    try{el.dispatchEvent(new Event('change',{bubbles:true}))}catch{}
+  }
+  if(__currentSection==='inventory'){setInput('inv-q-code',v);setInput('inv-q-desc','');setInput('inv-q-cat','');return}
+  if(__currentSection==='vendor'){setInput('vendor-q-name',v);setInput('vendor-q-contact','');setInput('vendor-q-phone','');return}
+  if(__currentSection==='purchase-order'){setInput('po-q-num',v);return}
+  if(__currentSection==='sales-order'){setInput('so-q-num',v);return}
+  if(__currentSection==='customer'){setInput('c-q-name',v);return}
+}
+if(globalSearchEl){
+  globalSearchEl.addEventListener('input',()=>applyGlobalSearch(globalSearchEl.value))
+  globalSearchEl.addEventListener('keydown',(e)=>{if(e.key==='Escape'){globalSearchEl.value='';applyGlobalSearch('')}})
+}
 async function importCSV(){const name=(tbl.value||'').trim();if(!name){statusEl.textContent='Enter table name';return}if(!file.files||!file.files[0]){statusEl.textContent='Choose a CSV file';return}const text=await file.files[0].text();statusEl.textContent='Uploading...';const r=await fetch(api('/api/import?table='+encodeURIComponent(name)),{method:'PUT',headers:{'Content-Type':'text/plain'},body:text});const j=await r.json().catch(()=>({}));statusEl.textContent=r.ok?('Imported '+(j.rows||0)+' rows into '+name):('Error: '+(j.error||r.status)) ;browseTable.value=name;loadData()}
 if(btn)btn.addEventListener('click',importCSV)
 async function loadData(){const name=(browseTable.value||'').trim();if(!name){schemaEl.textContent='';dataEl.textContent='';return}const s=await fetch(api('/api/schema?table='+encodeURIComponent(name)));const sj=await s.json().catch(()=>({}));schemaEl.textContent=s.ok?('Columns: '+(sj.schema||[]).join(', ')):('Schema error: '+(sj.error||s.status));const d=await fetch(api('/api/data?table='+encodeURIComponent(name)+'&limit=200'));const dj=await d.json().catch(()=>({}));if(!d.ok){dataEl.textContent='Data error: '+(dj.error||d.status);return}const rows=dj.rows||[];if(!rows.length){dataEl.textContent='No rows';return}const cols=Object.keys(rows[0]||{});const table=document.createElement('table');const thead=document.createElement('thead');const trh=document.createElement('tr');cols.forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});thead.appendChild(trh);table.appendChild(thead);const tbody=document.createElement('tbody');rows.forEach(r=>{const tr=document.createElement('tr');cols.forEach(k=>{const td=document.createElement('td');td.textContent=String(r[k]??'');tr.appendChild(td)});tbody.appendChild(tr)});table.appendChild(tbody);dataEl.innerHTML='';dataEl.appendChild(table)}
