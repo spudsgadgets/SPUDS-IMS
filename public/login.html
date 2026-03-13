@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IMS Login</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body class="dark">
+<main class="login-wrap" id="section-login">
+  <div class="login-card">
+    <div class="login-logo"><img id="brand-logo" class="brand-logo" alt=""></div>
+    <div class="row">
+      <div id="login-ver" class="status brand-ver" style="text-align:center;width:100%"></div>
+    </div>
+    <div class="row">
+      <div class="login-label">Username</div>
+      <input id="login-username" class="inp nocase" placeholder="Username">
+    </div>
+    <div class="row">
+      <div class="login-label">Password</div>
+      <input id="login-password" class="inp nocase" placeholder="Password" type="password">
+    </div>
+    <div class="row">
+      <button id="login-submit" class="btn login-btn">Sign In</button>
+    </div>
+    <div class="row">
+      <label style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="login-remember">
+        <span>Remember Me</span>
+      </label>
+      <button id="login-logout" class="btn btn-small" style="margin-left:auto">Logout</button>
+    </div>
+    <div id="login-status" class="status"></div>
+  </div>
+</main>
+<script src="./login.js"></script>
+</body>
+</html>
