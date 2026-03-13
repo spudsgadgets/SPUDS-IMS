@@ -112,3 +112,22 @@ thead th{position:sticky;top:0;z-index:1}
 .status-bad{color:var(--danger-text);font-weight:600}
 .diag-ips a{display:inline-block;margin-right:8px}
 .diag-table{margin-top:8px}
+body.login{min-height:100vh;background:radial-gradient(800px 500px at 50% 30%,rgba(37,99,235,.25),transparent 60%),linear-gradient(180deg,#06080c,#0b0f14 50%,#05070a)}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.login-card{width:520px;max-width:92vw;background:rgba(27,31,38,.85);border:1px solid rgba(58,64,73,.95);border-radius:16px;padding:28px 28px 22px;box-shadow:0 24px 70px rgba(0,0,0,.55);backdrop-filter:blur(10px)}
+body.login .login-logo{display:flex;justify-content:center;margin-bottom:10px}
+body.login .brand-logo{display:block;width:140px;height:70px;object-fit:contain}
+.login-heading{text-align:center;margin-bottom:18px}
+.login-title{font-size:28px;font-weight:750;letter-spacing:.06em}
+.login-version{font-size:14px;opacity:.85;margin-top:2px}
+body.login .login-card .row{flex-direction:column;gap:8px;margin-bottom:14px}
+body.login .login-card .row.login-aux{flex-direction:row;align-items:center;gap:12px;margin-bottom:8px}
+.login-label{font-size:14px;font-weight:650;opacity:.95}
+body.login .login-card input.inp{padding:14px 14px;border-radius:12px;border:1px solid rgba(226,232,240,.18);background:rgba(0,0,0,.35);color:var(--text)}
+body.login .login-card input.inp:focus-visible{outline:none;border-color:rgba(37,99,235,.85);box-shadow:0 0 0 3px rgba(37,99,235,.25)}
+body.login .login-btn{width:100%;padding:12px 14px;border-radius:12px;border:0;background:linear-gradient(90deg,#3b82f6,#8b5cf6);color:#fff;font-size:16px;font-weight:650}
+body.login .login-btn:hover{filter:brightness(1.05)}
+body.login .login-btn:active{filter:brightness(.98)}
+body.login .login-remember{display:flex;align-items:center;gap:8px;font-size:14px;opacity:.9}
+body.login #login-logout{margin-left:auto;border-radius:10px}
+body.login .login-status{text-align:center}

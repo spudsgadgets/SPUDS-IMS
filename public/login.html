@@ -6,32 +6,33 @@
 <title>IMS Login</title>
 <link rel="stylesheet" href="./styles.css">
 </head>
-<body class="dark">
+<body class="dark login">
 <main class="login-wrap" id="section-login">
   <div class="login-card">
-    <div class="login-logo"><img id="brand-logo" class="brand-logo" alt=""></div>
-    <div class="row">
-      <div id="login-ver" class="status brand-ver" style="text-align:center;width:100%"></div>
+    <div class="login-logo"><img id="brand-logo" class="brand-logo" alt="Logo"></div>
+    <div class="login-heading">
+      <div class="login-title">IMS</div>
+      <div id="login-ver" class="login-version brand-ver"></div>
     </div>
-    <div class="row">
+    <div class="row login-field">
       <div class="login-label">Username</div>
       <input id="login-username" class="inp nocase" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false">
     </div>
-    <div class="row">
+    <div class="row login-field">
       <div class="login-label">Password</div>
       <input id="login-password" class="inp nocase" placeholder="Password" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false">
     </div>
     <div class="row">
       <button id="login-submit" class="btn login-btn">Sign In</button>
     </div>
-    <div class="row">
-      <label style="display:flex;align-items:center;gap:8px">
+    <div class="row login-aux">
+      <label class="login-remember">
         <input type="checkbox" id="login-remember">
         <span>Remember Me</span>
       </label>
-      <button id="login-logout" class="btn btn-small" style="margin-left:auto">Logout</button>
+      <button id="login-logout" class="btn btn-small">Logout</button>
     </div>
-    <div id="login-status" class="status"></div>
+    <div id="login-status" class="status login-status"></div>
   </div>
 </main>
 <script src="./login.js"></script>

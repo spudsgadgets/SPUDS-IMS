@@ -5,20 +5,76 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { execFile, spawn } from 'child_process'
 import os from 'os'
+import crypto from 'crypto'
 const __dirname=path.dirname(fileURLToPath(import.meta.url))
 const PUBLIC=path.join(__dirname,'public')
 const PORT=parseInt(process.env.PORT||'3200',10)
 let mysql
 try{mysql=await import('mysql2/promise')}catch{}
-function cors(res){res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,DELETE,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type')}
+function cors(req,res){
+  const origin=String(req&&req.headers&&req.headers.origin||'').trim()
+  const allowOrigin=origin==='null'||/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)||/^https?:\/\/\d{1,3}(\.\d{1,3}){3}(:\d+)?$/i.test(origin)
+  if(origin&&allowOrigin){
+    res.setHeader('Access-Control-Allow-Origin',origin)
+    res.setHeader('Access-Control-Allow-Credentials','true')
+    res.setHeader('Vary','Origin')
+  }else{
+    res.setHeader('Access-Control-Allow-Origin','*')
+  }
+  res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,DELETE,OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization')
+}
 function json(res,code,obj){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(obj))}
 function ok(res,obj){json(res,200,obj)}
 function bad(res,msg){json(res,400,{error:msg})}
+function unauthorized(res,msg){json(res,401,{error:msg||'unauthorized'})}
 function notFound(res){json(res,404,{error:'Not found'})}
 function isValidName(n){return /^[a-zA-Z0-9_]+$/.test(n||'')}
 function toCols(headers){const seen={};return headers.map(h=>{let base=String(h).trim().slice(0,64).replace(/[^a-zA-Z0-9_]/g,'_')||'col';let name=base;let i=1;while(seen[name]){i++;name=base+'_'+i}seen[name]=true;return {name}})}
 function sniff(values){let t='TEXT';let int=true;let float=true;let date=true;for(const v of values){if(v===''||v==null)continue;const s=String(v).trim();if(!/^-?\d+$/.test(s))int=false;if(!/^-?\\d*(\\.\\d+)?$/.test(s))float=false;const d=new Date(s);if(!(d instanceof Date)&&isNaN(d))date=false;else if(isNaN(d))date=false}if(int)return 'BIGINT';if(float)return 'DOUBLE';if(date)return 'DATETIME';return t}
 function parseCSV(text){const out=[];let i=0;let cur='';let row=[];let q=false;while(i<text.length){const ch=text[i];if(q){if(ch==='\"'&&text[i+1]==='\"'){cur+='\"';i+=2;continue}else if(ch==='\"'){q=false;i++;continue}else{cur+=ch;i++;continue}}else{if(ch==='\"'){q=true;i++;continue}else if(ch===','){row.push(cur);cur='';i++;continue}else if(ch==='\r'){i++;continue}else if(ch==='\n'){row.push(cur);out.push(row);row=[];cur='';i++;continue}else{cur+=ch;i++;continue}}}row.push(cur);out.push(row);return out}
+function __parseCookies(req){
+  const raw=String(req&&req.headers&&req.headers.cookie||'')
+  const out={}
+  if(!raw)return out
+  for(const part of raw.split(';')){
+    const idx=part.indexOf('=')
+    if(idx<0)continue
+    const k=part.slice(0,idx).trim()
+    const v=part.slice(idx+1).trim()
+    if(!k)continue
+    out[k]=decodeURIComponent(v)
+  }
+  return out
+}
+function __getBearerToken(req){
+  const h=String(req&&req.headers&&req.headers.authorization||'').trim()
+  const m=/^Bearer\s+(.+)$/i.exec(h)
+  return m&&m[1]?String(m[1]).trim():null
+}
+function __getAuthToken(req){
+  const bearer=__getBearerToken(req)
+  if(bearer)return bearer
+  const cookies=__parseCookies(req)
+  return cookies.ims_token||null
+}
+function __authStore(){
+  if(!global.__authTokens)global.__authTokens=new Map()
+  return global.__authTokens
+}
+function __mintToken(){
+  return crypto.randomBytes(24).toString('hex')
+}
+function __getSession(req){
+  const token=__getAuthToken(req)
+  if(!token)return null
+  const store=__authStore()
+  const s=store.get(token)||null
+  if(!s)return null
+  const exp=Number(s.expiresAt||0)
+  if(exp&&Date.now()>exp){store.delete(token);return null}
+  return {token,user:s.user||null}
+}
 async function ensurePool(){
   if(!mysql)throw new Error('mysql2 not installed')
   if(!global.__pool){
@@ -123,12 +179,51 @@ async function ensureMysqlClient(cfg){
   return {mysqlExe,setupError:null}
 }
 async function handleAPI(req,res){
-cors(res);
+cors(req,res);
 const url=new URL(req.url,'http://localhost');
 if(req.method==='OPTIONS'){res.writeHead(204);res.end();return}
 if(url.pathname==='/api/health'){
   try{const pool=await ensurePool();const [r]=await pool.query('SELECT 1 AS ok');ok(res,{ok:true,db:Boolean(r&&r.length)})}
   catch(e){ok(res,{ok:false,error:String(e&&e.message||e)})}
+  return
+}
+if(url.pathname==='/api/auth/login'&&req.method==='POST'){
+  const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
+    try{
+      const body=Buffer.concat(chunks).toString('utf8')||'{}'
+      const payload=JSON.parse(body||'{}')
+      const username=String(payload&&payload.username||'').trim()
+      const password=String(payload&&payload.password||'')
+      const remember=Boolean(payload&&payload.remember)
+      if(!username)return bad(res,'missing username')
+      const envUser=String(process.env.IMS_USER||'').trim()
+      const envPass=String(process.env.IMS_PASSWORD||'')
+      if(envUser&&username.toLowerCase()!==envUser.toLowerCase())return unauthorized(res,'invalid credentials')
+      if(envPass&&password!==envPass)return unauthorized(res,'invalid credentials')
+      const token=__mintToken()
+      const ttlMs=remember?30*24*60*60*1000:12*60*60*1000
+      __authStore().set(token,{user:{name:username},expiresAt:Date.now()+ttlMs})
+      const cookieParts=['ims_token='+encodeURIComponent(token),'Path=/','SameSite=Lax','HttpOnly']
+      if(remember)cookieParts.push('Max-Age='+(30*24*60*60))
+      res.setHeader('Set-Cookie',cookieParts.join('; '))
+      ok(res,{ok:true,token,user:{name:username}})
+    }catch(e){
+      json(res,400,{error:String(e&&e.message||e)})
+    }
+  })
+  return
+}
+if(url.pathname==='/api/auth/me'&&req.method==='GET'){
+  const s=__getSession(req)
+  if(!s||!s.user)return unauthorized(res,'not logged in')
+  ok(res,{user:s.user})
+  return
+}
+if(url.pathname==='/api/auth/logout'&&req.method==='POST'){
+  const s=__getSession(req)
+  if(s&&s.token)__authStore().delete(s.token)
+  res.setHeader('Set-Cookie','ims_token=; Path=/; SameSite=Lax; HttpOnly; Max-Age=0')
+  ok(res,{ok:true})
   return
 }
 if(url.pathname==='/api/version'&&req.method==='GET'){

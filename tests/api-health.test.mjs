@@ -2,8 +2,20 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import http from 'node:http'
+import net from 'node:net'
 
 const TEST_PORT=process.env.TEST_PORT||'3205'
+function getFreePort(){
+  return new Promise((resolve,reject)=>{
+    const s=net.createServer()
+    s.on('error',reject)
+    s.listen(0,'127.0.0.1',()=>{
+      const addr=s.address()
+      const port=addr&&typeof addr==='object'&&addr.port?addr.port:null
+      s.close(()=>resolve(port))
+    })
+  })
+}
 function get(url){
   return new Promise((resolve,reject)=>{
     const req=http.get(url,res=>{
@@ -16,6 +28,25 @@ function get(url){
     })
     req.on('error',reject)
     req.setTimeout(3000,()=>{req.destroy(new Error('timeout'))})
+  })
+}
+function requestJson(url,{method='GET',headers={},body=null}={}){
+  return new Promise((resolve,reject)=>{
+    const u=new URL(url)
+    const req=http.request({method,hostname:u.hostname,port:u.port,path:u.pathname+u.search,headers},res=>{
+      const chunks=[]
+      res.on('data',c=>chunks.push(c))
+      res.on('end',()=>{
+        const text=Buffer.concat(chunks).toString('utf8')
+        let jsonObj=null
+        try{jsonObj=JSON.parse(text||'null')}catch{}
+        resolve({status:res.statusCode,body:text,json:jsonObj,headers:res.headers})
+      })
+    })
+    req.on('error',reject)
+    req.setTimeout(3000,()=>{req.destroy(new Error('timeout'))})
+    if(body!=null)req.write(body)
+    req.end()
   })
 }
 async function tryHealth(port){
@@ -40,14 +71,19 @@ async function waitForReady(port,timeoutMs=10000){
   throw new Error('server not responding on /api/health:'+port)
 }
 test('server responds on /api/health',async t=>{
-  let res=await tryHealth(TEST_PORT)
-  let child=null
-  if(!res){
-    child=startServer(TEST_PORT)
-    await t.cleanup(()=>{try{child.kill()}catch{}})
-    res=await waitForReady(TEST_PORT)
-  }
+  const port=String(await getFreePort()||TEST_PORT)
+  const child=startServer(port)
+  t.after(()=>{try{child.kill()}catch{}})
+  const res=await waitForReady(port)
   assert.equal(res.status,200)
   const obj=JSON.parse(res.body)
   assert.equal(typeof obj.ok,'boolean')
+
+  const login=await requestJson('http://127.0.0.1:'+port+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'test',password:'test',remember:false})})
+  assert.equal(login.status,200)
+  assert.equal(Boolean(login.json&&login.json.token),true)
+
+  const me=await requestJson('http://127.0.0.1:'+port+'/api/auth/me',{method:'GET',headers:{Authorization:'Bearer '+login.json.token}})
+  assert.equal(me.status,200)
+  assert.equal(me.json&&me.json.user&&me.json.user.name,'test')
 })

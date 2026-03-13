@@ -50,6 +50,18 @@ if($AllowDB){ Ensure-FirewallRule -name "SPUDS IMS DB $DbPort" -port $DbPort }
 if(-not (Test-IsAdmin)){
   Write-Warning "Firewall rules may not be added without Administrator rights. If remote access fails, run Start-IMS.cmd as Administrator."
 }
+function Stop-RunningNode($rootPath){
+  try{
+    $esc = [regex]::Escape($rootPath)
+    $nodes = Get-CimInstance Win32_Process -Filter "name='node.exe'" | Where-Object { $_.CommandLine -match 'server\.js' -and $_.CommandLine -match $esc }
+    if($nodes){
+      foreach($n in $nodes){
+        try{ Stop-Process -Id $n.ProcessId -Force -ErrorAction SilentlyContinue }catch{}
+      }
+    }
+  }catch{}
+}
+Stop-RunningNode $root
 Write-Host "Starting Node app on port $ApiPort (listening on all interfaces)..."
 try{
   $localNode = Join-Path $root "node\node.exe"
