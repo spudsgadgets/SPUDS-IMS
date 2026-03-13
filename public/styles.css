@@ -8,6 +8,7 @@ body{margin:0;font-family:system-ui,Arial,sans-serif;background:var(--bg);color:
 .brand-logo{width:64px;height:64px;object-fit:contain;display:none}
 .brand-name{display:inline-block}
 .inp{text-transform:uppercase}
+.inp.nocase{text-transform:none}
 select.inp option{text-transform:uppercase}
 a{color:var(--accent)}
 .main-nav{display:flex;gap:8px;flex-wrap:wrap}
