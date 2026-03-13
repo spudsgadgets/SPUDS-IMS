@@ -77,29 +77,29 @@ function __getSession(req){
 }
 async function ensurePool(){
   if(!mysql)throw new Error('mysql2 not installed')
-  if(!global.__pool){
-    const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims',waitForConnections:true,connectionLimit:10,queueLimit:0}
-    global.__pool=mysql.createPool(cfg)
-    try{
-      await global.__pool.query('SELECT 1')
-    }catch(e){
-      const msg=String(e&&e.message||'')
-      const code=String(e&&e.code||'')
-      if(code==='ER_BAD_DB_ERROR'||/Unknown database/i.test(msg)){
-        const cfg2={...cfg}; delete cfg2.database
-        const bootstrap=mysql.createPool(cfg2)
-        try{
-          await bootstrap.query('CREATE DATABASE IF NOT EXISTS `'+(cfg.database)+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
-        }finally{
-          await bootstrap.end()
-        }
-        global.__pool=mysql.createPool(cfg)
-      }else{
-        throw e
+  const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims',waitForConnections:true,connectionLimit:10,queueLimit:0}
+  if(!global.__pool)global.__pool=mysql.createPool(cfg)
+  try{
+    await global.__pool.query('SELECT 1')
+    return global.__pool
+  }catch(e){
+    const msg=String(e&&e.message||'')
+    const code=String(e&&e.code||'')
+    if(code==='ER_BAD_DB_ERROR'||/Unknown database/i.test(msg)){
+      const cfg2={...cfg}; delete cfg2.database
+      const bootstrap=mysql.createPool(cfg2)
+      try{
+        await bootstrap.query('CREATE DATABASE IF NOT EXISTS `'+(cfg.database)+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      }finally{
+        await bootstrap.end()
       }
+      try{await global.__pool.end()}catch{}
+      global.__pool=mysql.createPool(cfg)
+      await global.__pool.query('SELECT 1')
+      return global.__pool
     }
+    throw e
   }
-  return global.__pool
 }
 async function ensureInventoryView(){const pool=await ensurePool();const sql="CREATE OR REPLACE VIEW `inventory` AS SELECT p.`Name` AS product_name,p.`Category` AS category,p.`Description` AS description,p.`UnitPrice` AS unit_price,i.`Location` AS location,i.`Sublocation` AS sublocation,i.`Quantity` AS quantity,IFNULL(b.bom_lines,0) AS bom_lines FROM inflow_product p LEFT JOIN inflow_inventory i ON i.`Item`=p.`Name` LEFT JOIN (SELECT `FinishedItem`,COUNT(*) AS bom_lines FROM inflow_bom GROUP BY `FinishedItem`) b ON b.`FinishedItem`=p.`Name`;";await pool.query(sql)}
 async function ensureVendorView(){const pool=await ensurePool();const sql="CREATE OR REPLACE VIEW `vendor` AS SELECT * FROM inflow_vendor;";await pool.query(sql)}
