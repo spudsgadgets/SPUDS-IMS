@@ -28,15 +28,11 @@ function Ensure-GH {
 }
 function Ensure-GHLogin {
   if(-not (Get-Command gh -ErrorAction SilentlyContinue)){ return }
+  if($env:GH_TOKEN -or $env:GITHUB_TOKEN){ return }
   try{
     & gh auth status 2>$null 1>$null
     if($LASTEXITCODE -eq 0){ return }
   }catch{}
-  try{
-    & gh auth login -p https -h github.com
-  }catch{
-    Write-Verbose "gh auth login failed or was cancelled: $_"
-  }
 }
 function TryRun($cmd){ try{ Invoke-Expression $cmd }catch{ $null } }
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -50,6 +46,10 @@ if($repoUrl -match 'github.com[:/](.+?)/(.+?)(\.git)?$'){
   Write-Warning "Unsupported remote URL: $repoUrl"; exit 0
 }
 $zipFull = (Resolve-Path $ZipPath).Path
+# Token (if any) is used for non-interactive auth with gh and/or REST fallback
+$token = $env:GH_TOKEN
+if(-not $token -and $env:GITHUB_TOKEN){ $token = $env:GITHUB_TOKEN }
+if($token -and -not $env:GH_TOKEN){ $env:GH_TOKEN = $token }
 # Prefer gh CLI if available and logged in
 Ensure-GH
 Ensure-GHLogin
@@ -67,8 +67,6 @@ if(Get-Command gh -ErrorAction SilentlyContinue){
   }
 }
 # Fallback to REST API using GH_TOKEN/GITHUB_TOKEN
-$token = $env:GH_TOKEN
-if(-not $token -and $env:GITHUB_TOKEN){ $token = $env:GITHUB_TOKEN }
 if(-not $token){ Write-Warning "GH_TOKEN/GITHUB_TOKEN not set; skipping publish."; exit 0 }
 $uri = "https://api.github.com/repos/$owner/$repo/releases"
 $headers = @{ Authorization = "token $token"; "User-Agent" = "spuds-ims-release-script" }

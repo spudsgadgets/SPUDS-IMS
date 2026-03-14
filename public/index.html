@@ -29,23 +29,90 @@
 </header>
 <main class="content">
   <section id="section-dashboard" class="panel section section-active">
-    <h2>Dashboard</h2>
-    <div class="dashboard-grid">
-      <div class="card">
-        <div class="card-label">Inventory</div>
-        <div class="card-value" id="dash-inventory">-</div>
+    <div class="dash-wrap">
+      <div class="dash-top">
+        <div class="dash-head">
+          <div class="dash-h">Timeline</div>
+          <div class="dash-controls">
+            <label class="dash-ctl">Lines
+              <select id="dash-lines" class="inp dash-select">
+                <option value="sales">Sales Completed</option>
+                <option value="cogs">Cost of Goods Sold</option>
+                <option value="customer_payments">Customer Payments Due</option>
+                <option value="vendor_payments">Vendor Payments Due</option>
+              </select>
+            </label>
+            <label class="dash-ctl">Date
+              <select id="dash-range" class="inp dash-select">
+                <option value="30">Last 30 Days</option>
+                <option value="90" selected>Last 90 Days</option>
+                <option value="180">Last 180 Days</option>
+                <option value="365">Last 365 Days</option>
+              </select>
+            </label>
+            <label class="dash-ctl">Group By
+              <select id="dash-group" class="inp dash-select">
+                <option value="weeks">Weeks</option>
+                <option value="months" selected>Months</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="dash-timeline">
+          <div class="dash-chart" id="dash-timeline-chart">
+            <div class="muted">Loading timeline…</div>
+          </div>
+          <div class="dash-chart-tools">
+            <button id="dash-zoom-in" class="btn btn-small" type="button">+</button>
+            <button id="dash-zoom-out" class="btn btn-small" type="button">−</button>
+            <button id="dash-chart-type" class="btn btn-small" type="button">Bars</button>
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <div class="card-label">Vendors</div>
-        <div class="card-value" id="dash-vendor">-</div>
-      </div>
-      <div class="card">
-        <div class="card-label">Customers</div>
-        <div class="card-value" id="dash-customer">-</div>
-      </div>
-      <div class="card">
-        <div class="card-label">Open Orders</div>
-        <div class="card-value" id="dash-orders">-</div>
+
+      <div class="dash-bottom">
+        <div class="dash-outstanding">
+          <div class="dash-subhead">
+            <div class="dash-h">Outstanding</div>
+            <a id="dash-outstanding-details" class="dash-link" href="#section-sales-order">details</a>
+          </div>
+          <div class="dash-kpis">
+            <div class="dash-kpi kpi-green">
+              <div class="dash-kpi-num" id="dash-so-count">-</div>
+              <div class="dash-kpi-label">Sales Orders</div>
+            </div>
+            <div class="dash-kpi kpi-gold">
+              <div class="dash-kpi-num" id="dash-po-count">-</div>
+              <div class="dash-kpi-label">Purchase Orders</div>
+            </div>
+            <div class="dash-kpi kpi-blue">
+              <div class="dash-kpi-num" id="dash-inventory">-</div>
+              <div class="dash-kpi-label">Products</div>
+            </div>
+            <div class="dash-kpi kpi-sky">
+              <div class="dash-kpi-num" id="dash-vendor">-</div>
+              <div class="dash-kpi-label">Vendors</div>
+            </div>
+            <div class="dash-kpi kpi-teal">
+              <div class="dash-kpi-num" id="dash-customer">-</div>
+              <div class="dash-kpi-label">Customers</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dash-top5">
+          <div class="dash-subhead">
+            <div class="dash-h">Top 5 Sales Orders</div>
+            <label class="dash-ctl dash-inline">w/
+              <select id="dash-top5-mode" class="inp dash-select">
+                <option value="highest_sales" selected>highest sales</option>
+                <option value="recent">most recent</option>
+              </select>
+            </label>
+          </div>
+          <ol id="dash-top5-list" class="dash-top5-list"></ol>
+          <div id="dash-top5-status" class="status"></div>
+        </div>
       </div>
     </div>
   </section>

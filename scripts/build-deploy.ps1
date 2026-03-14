@@ -17,7 +17,7 @@ $releaseName = "SPUDS-IMS-Deploy-$($pkgVer)-$($ts)-$($sha).zip"
 $releaseDirPath = Join-Path $root $ReleasesDir
 if(-not (Test-Path $releaseDirPath)){ New-Item -ItemType Directory -Path $releaseDirPath | Out-Null }
 # copy files into bundle
-$exclude = @('node_modules','dist','.git','coverage',$ReleasesDir)
+$exclude = @('node_modules','dist','.git','coverage',$ReleasesDir,'local-mariadb','backups','logs','.github')
 $excludeFiles = @('.gitignore','SPUDS-IMS-Deploy.zip')
 $items = Get-ChildItem -Force -LiteralPath $root
 foreach($item in $items){
@@ -38,10 +38,11 @@ function TryNpmInstall($dir){
     Push-Location $dir
     try{
       if(Test-Path (Join-Path $dir "package-lock.json")){
-        & npm ci --omit=dev
+        & npm ci --omit=dev --no-audit --no-fund --loglevel=error
       }else{
-        & npm install --omit=dev
+        & npm install --omit=dev --no-audit --no-fund --loglevel=error
       }
+      if($LASTEXITCODE -ne 0){ return $false }
       Write-Host "Installed production dependencies in bundle via npm."
       return $true
     }finally{ Pop-Location }
@@ -50,19 +51,91 @@ function TryNpmInstall($dir){
     return $false
   }
 }
-if(-not (TryNpmInstall $bundle)){
-  try{
-    $srcNodeMods = Join-Path $root "node_modules"
-    $dstNodeMods = Join-Path $bundle "node_modules"
-    if(Test-Path $srcNodeMods){
-      Copy-Item -Recurse -Force -LiteralPath $srcNodeMods -Destination $dstNodeMods
-      Write-Host "Copied node_modules from root into deploy bundle."
-    }else{
-      Write-Warning "node_modules not available; runtime may fail. Ensure dependencies are installed before packaging."
+function Remove-ItemRetry([string]$path){
+  if(-not (Test-Path $path)){ return }
+  for($i=0;$i -lt 240;$i++){
+    try{
+      Remove-Item -Recurse -Force -LiteralPath $path -ErrorAction Stop
+      return
+    }catch{
+      Start-Sleep -Milliseconds 250
     }
-  }catch{
-    Write-Warning ("Failed to copy node_modules: {0}" -f $_)
   }
+  Remove-Item -Recurse -Force -LiteralPath $path
+}
+function Remove-FileRetry([string]$path){
+  if(-not (Test-Path $path)){ return }
+  for($i=0;$i -lt 240;$i++){
+    try{
+      Remove-Item -Force -LiteralPath $path -ErrorAction Stop
+      return
+    }catch{
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  Remove-Item -Force -LiteralPath $path
+}
+function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
+  Add-Type -AssemblyName System.IO.Compression
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $tmpZip = ($destZip + ".tmp-" + [guid]::NewGuid().ToString())
+  Remove-FileRetry $tmpZip
+  $zip = $null
+  $zip = [System.IO.Compression.ZipFile]::Open($tmpZip,[System.IO.Compression.ZipArchiveMode]::Create)
+  try{
+    $src = (Resolve-Path -LiteralPath $sourceDir).Path
+    $files = Get-ChildItem -LiteralPath $src -Recurse -File -Force
+    foreach($f in $files){
+      $full = $f.FullName
+      $rel = $full.Substring($src.Length).TrimStart('\','/')
+      $rel = $rel -replace '\\','/'
+      if([string]::IsNullOrWhiteSpace($rel)){ continue }
+      $entry = $zip.CreateEntry($rel,[System.IO.Compression.CompressionLevel]::Optimal)
+      $inStream = $null
+      for($i=0;$i -lt 240;$i++){
+        try{
+          $inStream = [System.IO.File]::Open($full,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::ReadWrite)
+          break
+        }catch{
+          Start-Sleep -Milliseconds 250
+        }
+      }
+      if(-not $inStream){
+        Write-Warning ("Skipping unreadable file: {0}" -f $rel)
+        continue
+      }
+      $outStream = $null
+      try{
+        $outStream = $entry.Open()
+        $inStream.CopyTo($outStream)
+      }finally{
+        if($outStream){ $outStream.Dispose() }
+        $inStream.Dispose()
+      }
+    }
+  }finally{
+    if($zip){ $zip.Dispose() }
+  }
+  Remove-FileRetry $destZip
+  Move-Item -Force -LiteralPath $tmpZip -Destination $destZip
+}
+$srcNodeMods = Join-Path $root "node_modules"
+$dstNodeMods = Join-Path $bundle "node_modules"
+$didDeps = $false
+try{
+  if(Test-Path $srcNodeMods){
+    Copy-Item -Recurse -Force -LiteralPath $srcNodeMods -Destination $dstNodeMods
+    Write-Host "Copied node_modules from root into deploy bundle."
+    $didDeps = $true
+  }
+}catch{
+  Write-Warning ("Failed to copy node_modules: {0}" -f $_)
+}
+if(-not $didDeps){
+  if(TryNpmInstall $bundle){ $didDeps = $true }
+}
+if(-not $didDeps){
+  Write-Warning "Dependencies were not installed/copied into the deploy bundle (node_modules missing). Runtime may fail."
 }
 try{
   $nodeExe = Join-Path $bundle "node\node.exe"
@@ -88,8 +161,6 @@ try{
     $html = Get-Content -Raw -LiteralPath $idx -Encoding UTF8
     # title: replace IMS or IMS vX => IMS v<package>
     $html = [regex]::Replace($html,'(?<=<title>\s*)IMS(?: v[0-9][^<]*)?(?=\s*</title>)',("IMS v{0}" -f $pkgVer))
-    # brand: replace IMS or IMS vX inside brand-name span
-    $html = [regex]::Replace($html,'(?<=class="brand-name">)IMS(?: v[0-9][^<]*)?',("IMS v{0}" -f $pkgVer))
     Set-Content -LiteralPath $idx -Encoding UTF8 -Value $html
     Write-Host ("Stamped UI version: v{0}" -f $pkgVer)
   }
@@ -111,10 +182,9 @@ $meta | ConvertTo-Json -Depth 5 | Out-File -FilePath $metaPath -Encoding UTF8 -F
 # build zips
 $zipLatest = Join-Path $root $ZipName
 $zipRelease = Join-Path $releaseDirPath $releaseName
-if(Test-Path $zipLatest){ Remove-Item -Force $zipLatest }
-Compress-Archive -Path (Join-Path $bundle "*") -DestinationPath $zipLatest -Force
+New-ZipFromFolder $bundle $zipLatest
 Copy-Item -Force $zipLatest $zipRelease
-Remove-Item -Recurse -Force $bundle
+Remove-ItemRetry $bundle
 Write-Host "Deploy ZIP created:"
 Write-Host " - Latest:  $zipLatest"
 Write-Host " - Release: $zipRelease"

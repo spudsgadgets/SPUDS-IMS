@@ -132,7 +132,253 @@ async function quickCount(table,elId){try{const r=await fetch(api('/api/count?ta
 quickCount('inventory','dash-inventory')
 quickCount('vendor','dash-vendor')
 quickCount('customer','dash-customer')
-quickCount('sales_order','dash-orders')
+quickCount('sales_order','dash-so-count')
+quickCount('purchase_order','dash-po-count')
+
+const dashLinesEl=document.getElementById('dash-lines')
+const dashRangeEl=document.getElementById('dash-range')
+const dashGroupEl=document.getElementById('dash-group')
+const dashTop5ModeEl=document.getElementById('dash-top5-mode')
+const dashTop5ListEl=document.getElementById('dash-top5-list')
+const dashTop5StatusEl=document.getElementById('dash-top5-status')
+const dashTimelineChartEl=document.getElementById('dash-timeline-chart')
+const dashZoomInBtn=document.getElementById('dash-zoom-in')
+const dashZoomOutBtn=document.getElementById('dash-zoom-out')
+const dashChartTypeBtn=document.getElementById('dash-chart-type')
+
+let __dashZoom=1
+let __dashChartType='bars'
+function normalizeKey(k){return String(k||'').replace(/[^a-z0-9]+/ig,'').toLowerCase()}
+function pickField(obj,candidates){
+  if(!obj)return null
+  const keys=Object.keys(obj)
+  const map=new Map(keys.map(k=>[normalizeKey(k),k]))
+  for(const c of candidates){
+    const hit=map.get(normalizeKey(c))
+    if(hit!=null)return hit
+  }
+  return null
+}
+function toNumber(v){
+  if(v==null)return null
+  if(typeof v==='number'&&Number.isFinite(v))return v
+  const s=String(v).trim()
+  if(!s)return null
+  const cleaned=s.replace(/[^0-9.\-]+/g,'')
+  const n=Number(cleaned)
+  return Number.isFinite(n)?n:null
+}
+function toDate(v){
+  if(!v)return null
+  const d=new Date(v)
+  return Number.isFinite(d.getTime())?d:null
+}
+function fmtMoney(n){
+  if(n==null||!Number.isFinite(n))return ''
+  try{return n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}catch{return String(Math.round(n*100)/100)}
+}
+function clamp(n,min,max){return Math.max(min,Math.min(max,n))}
+function startOfWeek(d){
+  const x=new Date(d)
+  const day=(x.getDay()+6)%7
+  x.setHours(0,0,0,0)
+  x.setDate(x.getDate()-day)
+  return x
+}
+function startOfMonth(d){
+  const x=new Date(d)
+  x.setHours(0,0,0,0)
+  x.setDate(1)
+  return x
+}
+function fmtBucketLabel(d,group){
+  const m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  if(group==='weeks'){
+    return m[d.getMonth()]+' '+String(d.getDate())
+  }
+  return m[d.getMonth()]+' '+String(d.getFullYear())
+}
+function svgBars(series,{height=200,width=920}={}){
+  const padL=46,padR=12,padT=10,padB=26
+  const innerW=width-padL-padR
+  const innerH=height-padT-padB
+  const max=Math.max(1,...series.map(s=>Math.abs(s.value||0)))
+  const barW=series.length?Math.max(8,Math.floor(innerW/series.length*0.7)):10
+  const gap=series.length?Math.floor((innerW-(barW*series.length))/Math.max(1,series.length-1)):0
+  let x=padL
+  const lines=[]
+  for(let i=0;i<=4;i++){
+    const y=padT+Math.round(innerH*(i/4))
+    lines.push(`<line x1="${padL}" y1="${y}" x2="${width-padR}" y2="${y}" stroke="rgba(0,0,0,.12)" stroke-width="1" />`)
+    const val=Math.round((max*(1-(i/4)))*100)/100
+    lines.push(`<text x="${padL-8}" y="${y+4}" text-anchor="end" font-size="11" fill="rgba(0,0,0,.65)">${val}</text>`)
+  }
+  const bars=[]
+  const labels=[]
+  for(const s of series){
+    const v=Number(s.value)||0
+    const h=Math.round((Math.abs(v)/max)*innerH)
+    const y=padT+(innerH-h)
+    bars.push(`<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="3" fill="rgba(31,111,235,.85)"></rect>`)
+    labels.push(`<text x="${x+barW/2}" y="${height-8}" text-anchor="middle" font-size="11" fill="rgba(0,0,0,.65)">${String(s.label||'')}</text>`)
+    x+=barW+gap
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>${lines.join('')}${bars.join('')}${labels.join('')}</svg>`
+}
+function svgLine(series,{height=200,width=920}={}){
+  const padL=46,padR=12,padT=10,padB=26
+  const innerW=width-padL-padR
+  const innerH=height-padT-padB
+  const max=Math.max(1,...series.map(s=>Math.abs(s.value||0)))
+  const lines=[]
+  for(let i=0;i<=4;i++){
+    const y=padT+Math.round(innerH*(i/4))
+    lines.push(`<line x1="${padL}" y1="${y}" x2="${width-padR}" y2="${y}" stroke="rgba(0,0,0,.12)" stroke-width="1" />`)
+    const val=Math.round((max*(1-(i/4)))*100)/100
+    lines.push(`<text x="${padL-8}" y="${y+4}" text-anchor="end" font-size="11" fill="rgba(0,0,0,.65)">${val}</text>`)
+  }
+  const step=series.length>1?(innerW/(series.length-1)):0
+  const pts=[]
+  const labels=[]
+  for(let i=0;i<series.length;i++){
+    const s=series[i]
+    const v=Number(s.value)||0
+    const x=padL+(step*i)
+    const y=padT+(innerH-(Math.abs(v)/max)*innerH)
+    pts.push([x,y])
+    labels.push(`<text x="${x}" y="${height-8}" text-anchor="middle" font-size="11" fill="rgba(0,0,0,.65)">${String(s.label||'')}</text>`)
+  }
+  const poly=pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')
+  const dots=pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="rgba(31,111,235,.95)"></circle>`).join('')
+  const path=`<polyline points="${poly}" fill="none" stroke="rgba(31,111,235,.85)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></polyline>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>${lines.join('')}${path}${dots}${labels.join('')}</svg>`
+}
+function renderTimeline(series){
+  if(!dashTimelineChartEl)return
+  if(!series||!series.length){dashTimelineChartEl.innerHTML='<div class="muted">No timeline data</div>';return}
+  const w=Math.round(920*__dashZoom)
+  const h=220
+  const svg=(__dashChartType==='line'?svgLine(series,{width:w,height:h}):svgBars(series,{width:w,height:h}))
+  dashTimelineChartEl.innerHTML=svg
+}
+async function fetchSalesOrders(){
+  const r=await fetch(api('/api/data?table=sales_order&limit=200'))
+  const j=await r.json().catch(()=>({}))
+  if(!r.ok)throw new Error(j.error||String(r.status))
+  return Array.isArray(j.rows)?j.rows:[]
+}
+function renderTop5(items){
+  if(!dashTop5ListEl)return
+  dashTop5ListEl.innerHTML=''
+  for(const it of items){
+    const li=document.createElement('li')
+    li.className='dash-top5-item'
+    const left=document.createElement('div')
+    left.className='dash-top5-left'
+    const num=document.createElement('div')
+    num.className='dash-top5-num'
+    num.textContent=it.title||'—'
+    const sub=document.createElement('div')
+    sub.className='dash-top5-sub'
+    sub.textContent=it.sub||''
+    left.appendChild(num)
+    left.appendChild(sub)
+    const amt=document.createElement('div')
+    amt.className='dash-top5-amt'
+    amt.textContent=it.amount||''
+    li.appendChild(left)
+    li.appendChild(amt)
+    dashTop5ListEl.appendChild(li)
+  }
+}
+async function loadTop5SalesOrders(rows){
+  if(!dashTop5ListEl)return
+  if(dashTop5StatusEl)dashTop5StatusEl.textContent='Loading…'
+  try{
+    const mode=(dashTop5ModeEl&&dashTop5ModeEl.value)||'highest_sales'
+    const noKey=pickField(rows[0],['order_no','orderno','order','order#','so','salesorder','sales_order','number','docno','doc_no','invoice','invoice_no'])
+    const amtKey=pickField(rows[0],['total','grandtotal','grand_total','amount','totalamount','total_amount','balance','subtotal','sub_total'])
+    const dateKey=pickField(rows[0],['date','orderdate','order_date','docdate','doc_date','createdat','created_at','timestamp'])
+    const mapped=rows.map((r,idx)=>{
+      const title=noKey?String(r[noKey]??'').trim():('Order #'+String(idx+1))
+      const amt=amtKey?toNumber(r[amtKey]):null
+      const dt=dateKey?toDate(r[dateKey]):null
+      const sub=dt?dt.toLocaleDateString():((amtKey&&amt!=null)?(amtKey+': '+fmtMoney(amt)):'')
+      return {title,amt,dt,sub}
+    })
+    const sorted=[...mapped].sort((a,b)=>{
+      if(mode==='recent'){
+        const at=a.dt?a.dt.getTime():0
+        const bt=b.dt?b.dt.getTime():0
+        return bt-at
+      }
+      const av=a.amt??-Infinity
+      const bv=b.amt??-Infinity
+      return bv-av
+    })
+    const items=sorted.slice(0,5).map(it=>({title:it.title||'—',sub:it.sub||'',amount:(it.amt!=null?fmtMoney(it.amt):'')}))
+    renderTop5(items)
+    if(dashTop5StatusEl)dashTop5StatusEl.textContent=items.length?'':'No sales orders'
+  }catch(e){
+    if(dashTop5StatusEl)dashTop5StatusEl.textContent='Top 5 error: '+(e&&e.message||e)
+  }
+}
+function buildTimelineSeries(rows){
+  const group=(dashGroupEl&&dashGroupEl.value)||'months'
+  const rangeDays=Number((dashRangeEl&&dashRangeEl.value)||90)||90
+  const dateKey=pickField(rows[0],['date','orderdate','order_date','docdate','doc_date','createdat','created_at','timestamp'])
+  const amtKey=pickField(rows[0],['total','grandtotal','grand_total','amount','totalamount','total_amount','subtotal','sub_total'])
+  if(!dateKey||!amtKey)return []
+  const now=new Date()
+  const since=new Date(now.getTime()-rangeDays*24*60*60*1000)
+  const buckets=new Map()
+  for(const r of rows){
+    const d=toDate(r[dateKey])
+    if(!d||d<since||d>now)continue
+    const key=(group==='weeks'?startOfWeek(d):startOfMonth(d)).toISOString().slice(0,10)
+    const v=toNumber(r[amtKey])
+    if(v==null)continue
+    buckets.set(key,(buckets.get(key)||0)+v)
+  }
+  const keys=[...buckets.keys()].sort()
+  const maxPoints=clamp(Math.floor(14*__dashZoom),6,40)
+  const trimmed=keys.slice(Math.max(0,keys.length-maxPoints))
+  return trimmed.map(k=>{
+    const d=new Date(k+'T00:00:00')
+    return {label:fmtBucketLabel(d,group),value:buckets.get(k)||0}
+  })
+}
+async function loadDashboard(){
+  if(!dashTimelineChartEl&&!dashTop5ListEl)return
+  try{
+    const rows=await fetchSalesOrders()
+    renderTimeline(buildTimelineSeries(rows))
+    await loadTop5SalesOrders(rows)
+  }catch(e){
+    if(dashTimelineChartEl)dashTimelineChartEl.innerHTML='<div class="muted">Timeline unavailable</div>'
+    if(dashTop5StatusEl)dashTop5StatusEl.textContent='Top 5 unavailable'
+  }
+}
+function reloadDashboard(){
+  if(dashTimelineChartEl)dashTimelineChartEl.innerHTML='<div class="muted">Loading timeline…</div>'
+  if(dashTop5StatusEl)dashTop5StatusEl.textContent=''
+  loadDashboard()
+}
+if(dashLinesEl)dashLinesEl.addEventListener('change',reloadDashboard)
+if(dashRangeEl)dashRangeEl.addEventListener('change',reloadDashboard)
+if(dashGroupEl)dashGroupEl.addEventListener('change',reloadDashboard)
+if(dashTop5ModeEl)dashTop5ModeEl.addEventListener('change',reloadDashboard)
+if(dashZoomInBtn)dashZoomInBtn.addEventListener('click',()=>{__dashZoom=clamp(__dashZoom+0.25,1,2.5);reloadDashboard()})
+if(dashZoomOutBtn)dashZoomOutBtn.addEventListener('click',()=>{__dashZoom=clamp(__dashZoom-0.25,0.75,2.5);reloadDashboard()})
+if(dashChartTypeBtn){
+  dashChartTypeBtn.textContent=__dashChartType==='line'?'Line':'Bars'
+  dashChartTypeBtn.addEventListener('click',()=>{
+    __dashChartType=(__dashChartType==='bars'?'line':'bars')
+    dashChartTypeBtn.textContent=__dashChartType==='line'?'Line':'Bars'
+    reloadDashboard()
+  })
+}
+reloadDashboard()
 function applyLogo(src){if(!logoImg)return;if(src){logoImg.src=src;logoImg.style.display='inline-block'}else{logoImg.removeAttribute('src');logoImg.style.display='none'};if(logoPreview){if(src){logoPreview.src=src;logoPreview.style.display='inline-block'}else{logoPreview.removeAttribute('src');logoPreview.style.display='none'}};if(logoStatus){logoStatus.textContent=src?'Logo set':'No logo'}}
 let savedLogo=null;try{savedLogo=localStorage.getItem('logoSrc')}catch{};applyLogo(savedLogo||'')
 if(savedLogo){if(logoSelectIcon){logoSelectIcon.src=savedLogo;logoSelectIcon.style.display='inline-block'};if(logoSelectText)logoSelectText.textContent='Change Logo'}
