@@ -42,5 +42,6 @@ if($needsInit){
     exit 1
   }
 }
+$tmpDir = [System.IO.Path]::GetTempPath()
 Write-Host "Starting MariaDB from $mysqld with $myIni on port $Port"
-& $mysqld "--defaults-file=$myIni" "--basedir=$mariaRoot" "--datadir=$dataDir" "--port=$Port" "--bind-address=127.0.0.1" "--console"
+& $mysqld "--defaults-file=$myIni" "--basedir=$mariaRoot" "--datadir=$dataDir" "--port=$Port" "--bind-address=127.0.0.1" "--tmpdir=$tmpDir" "--console"

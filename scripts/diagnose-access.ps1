@@ -38,13 +38,15 @@ function Get-IPs(){
 }
 function Test-Health($port){
   try{
-    $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri ("http://localhost:{0}/api/health" -f $port) -ErrorAction Stop
-    return $r.StatusCode -eq 200
+    $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri ("http://127.0.0.1:{0}/api/health" -f $port) -ErrorAction Stop
+    if($r.StatusCode -eq 200){ return $true }
+    $r2 = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri ("http://localhost:{0}/api/health" -f $port) -ErrorAction Stop
+    return $r2.StatusCode -eq 200
   }catch{ return $false }
 }
 function Get-HealthDetail($port){
   try{
-    $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 -Uri ("http://localhost:{0}/api/health" -f $port) -ErrorAction Stop
+    $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 -Uri ("http://127.0.0.1:{0}/api/health" -f $port) -ErrorAction Stop
     $obj = $null
     try{ $obj = $r.Content | ConvertFrom-Json }catch{}
     if($obj){

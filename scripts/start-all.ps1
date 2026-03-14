@@ -50,9 +50,13 @@ function Test-PortReady($h,$p){
     $client.Close();return $false
   }catch{return $false}
 }
-for($i=0;$i -lt 50;$i++){
+for($i=0;$i -lt 150;$i++){
   if(Test-PortReady "127.0.0.1" ([int]$DbPort)){ break }
   Start-Sleep -Milliseconds 200
+}
+if(-not (Test-PortReady "127.0.0.1" ([int]$DbPort))){
+  Write-Error ("MariaDB did not start on 127.0.0.1:{0}. Check local-mariadb\\my.ini and try running scripts\\start-db.ps1 directly." -f $DbPort)
+  exit 1
 }
 function Ensure-FirewallRule($name,$port){
   try{
