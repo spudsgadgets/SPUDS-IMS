@@ -31,6 +31,34 @@ foreach($item in $items){
     Copy-Item -Force -LiteralPath $item.FullName -Destination $dest
   }
 }
+$mariaDownloads = Join-Path $bundle "mariadb\downloads"
+if(Test-Path $mariaDownloads){
+  for($i=0;$i -lt 240;$i++){
+    try{
+      Remove-Item -Recurse -Force -LiteralPath $mariaDownloads -ErrorAction Stop
+      break
+    }catch{
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  if(Test-Path $mariaDownloads){
+    Remove-Item -Recurse -Force -LiteralPath $mariaDownloads
+  }
+}
+$mariaInclude = Join-Path $bundle "mariadb\include"
+if(Test-Path $mariaInclude){
+  for($i=0;$i -lt 240;$i++){
+    try{
+      Remove-Item -Recurse -Force -LiteralPath $mariaInclude -ErrorAction Stop
+      break
+    }catch{
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  if(Test-Path $mariaInclude){
+    Remove-Item -Recurse -Force -LiteralPath $mariaInclude
+  }
+}
 function TryNpmInstall($dir){
   try{
     $npm = Get-Command -Name npm -ErrorAction SilentlyContinue
@@ -90,6 +118,8 @@ function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
       $rel = $full.Substring($src.Length).TrimStart('\','/')
       $rel = $rel -replace '\\','/'
       if([string]::IsNullOrWhiteSpace($rel)){ continue }
+      if($rel -like "mariadb/downloads/*"){ continue }
+      if($rel -like "mariadb/include/*"){ continue }
       $entry = $zip.CreateEntry($rel,[System.IO.Compression.CompressionLevel]::Optimal)
       $inStream = $null
       for($i=0;$i -lt 240;$i++){

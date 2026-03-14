@@ -6,13 +6,6 @@ param(
   [string]$Log = ""
 )
 $ErrorActionPreference = "Stop"
-function Test-IsAdmin(){
-  try{
-    $id=[Security.Principal.WindowsIdentity]::GetCurrent()
-    $p=New-Object Security.Principal.WindowsPrincipal($id)
-    return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-  }catch{ return $false }
-}
 function Out([string]$msg){
   Write-Host $msg
   if($Log){ try{ Add-Content -Path $Log -Value $msg }catch{} }
@@ -146,16 +139,12 @@ if($ExpectedIp){
   Out ("Expected IP present: {0}" -f $presentText)
 }
 if($Fix){
-  if(-not (Test-IsAdmin)){
-    Start-Process -FilePath "powershell" -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`" -ApiPort {1} -Fix" -f $PSCommandPath,$ApiPort) -Verb RunAs
-    exit 0
-  }
   Ensure-FirewallRule -name ("SPUDS IMS API {0}" -f $ApiPort) -port $ApiPort
 }
 if($Start){
   if(-not (Ensure-Node $root)){ Out "Could not ensure Node.js runtime; setup may require internet or manual node.exe copy."; }
-  $startScript = Join-Path $root "scripts\start-ims-elevated.ps1"
-  & $startScript -DbPort "3307" -ApiPort $ApiPort
+  $startAll = Join-Path $root "scripts\start-all.ps1"
+  & $startAll -DbPort "3307" -ApiPort $ApiPort -AllowDB -OpenBrowser $false
   Start-Sleep -Seconds 3
   $healthy2 = Test-Health $ApiPort
   $healthText2 = if($healthy2){"OK"}else{"FAIL"}
