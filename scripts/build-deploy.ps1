@@ -13,7 +13,7 @@ function _Try($script){ try{ & ([scriptblock]::Create($script)) }catch{ $null } 
 $pkgVer = (_Try "(Get-Content -Raw -LiteralPath (Join-Path '$root' 'package.json') | ConvertFrom-Json).version") ; if(-not $pkgVer){ $pkgVer = "0.0.0" }
 $sha = (_Try "git rev-parse --short HEAD").Trim() ; if(-not $sha){ $sha = "nogit" }
 $ts = Get-Date -Format "yyyyMMdd-HHmmss"
-$releaseName = "SPUDS-IMS-Deploy-$($pkgVer)-$($ts)-$($sha).zip"
+$releaseName = "SPUDS-IMS-Deploy-$($pkgVer).zip"
 $releaseDirPath = Join-Path $root $ReleasesDir
 if(-not (Test-Path $releaseDirPath)){ New-Item -ItemType Directory -Path $releaseDirPath | Out-Null }
 # copy files into bundle
@@ -103,6 +103,19 @@ function Remove-FileRetry([string]$path){
   }
   Remove-Item -Force -LiteralPath $path
 }
+function Move-FileRetry([string]$src,[string]$dest){
+  if(-not (Test-Path $src)){ throw ("Source file not found: {0}" -f $src) }
+  for($i=0;$i -lt 240;$i++){
+    try{
+      Move-Item -Force -LiteralPath $src -Destination $dest -ErrorAction Stop
+      return
+    }catch{
+      Start-Sleep -Milliseconds 250
+    }
+  }
+  Copy-Item -Force -LiteralPath $src -Destination $dest
+  Remove-FileRetry $src
+}
 function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
   Add-Type -AssemblyName System.IO.Compression
   Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -147,7 +160,7 @@ function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
     if($zip){ $zip.Dispose() }
   }
   Remove-FileRetry $destZip
-  Move-Item -Force -LiteralPath $tmpZip -Destination $destZip
+  Move-FileRetry $tmpZip $destZip
 }
 $srcNodeMods = Join-Path $root "node_modules"
 $dstNodeMods = Join-Path $bundle "node_modules"

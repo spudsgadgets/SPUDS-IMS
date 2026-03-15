@@ -129,33 +129,176 @@ async function normalizeCollations(database){
     }
   }catch{}
 }
-function __sqlEsc(v){if(v===null||v===undefined)return 'NULL';if(typeof v==='number')return String(v);if(v instanceof Date){const pad=n=>String(n).padStart(2,'0');const Y=v.getFullYear();const M=pad(v.getMonth()+1);const D=pad(v.getDate());const h=pad(v.getHours());const m=pad(v.getMinutes());const s=pad(v.getSeconds());return `'${Y}-${M}-${D} ${h}:${m}:${s}'`};let s=String(v);s=s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r\n/g,'\\n').replace(/\n/g,'\\n');return `'${s}'`}
-async function nodeDumpDatabase(database){
-  const pool=await ensurePool();
-  let out=[];
-  out.push('SET NAMES utf8mb4;');
-  out.push('SET FOREIGN_KEY_CHECKS=0;');
-  out.push('CREATE DATABASE IF NOT EXISTS `'+database+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;');
-  out.push('USE `'+database+'`;');
-  const [tables]=await pool.query('SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database]);
-  for(const r of tables||[]){
-    const name=r&&r.TABLE_NAME;const type=String(r&&r.TABLE_TYPE||'').toUpperCase();
-    if(!name)continue;
-    if(type==='VIEW')continue;
+function __archiveDbName(){
+  return String(process.env.IMS_ARCHIVE_DATABASE||process.env.MYSQL_ARCHIVE_DATABASE||'ims_archive')
+}
+async function __ensureArchiveTableLike(pool,sourceDb,archiveDb,table){
+  const [rows]=await pool.query('SHOW CREATE TABLE `'+sourceDb+'`.`'+table+'`')
+  const create=rows&&rows[0]&&(rows[0]['Create Table']||rows[0]['Create Table'.toString()])
+  if(!create)throw new Error('cannot read table schema: '+table)
+  let sql=String(create)
+  sql=sql.replace(/^CREATE TABLE `([^`]+)`/i,'CREATE TABLE IF NOT EXISTS `'+archiveDb+'`.`$1`')
+  sql=sql.replace(/\sAUTO_INCREMENT=\d+/i,'')
+  await pool.query(sql)
+}
+async function __syncTableColumns(conn,fromDb,toDb,table){
+  const [fromCols]=await conn.query('SHOW COLUMNS FROM `'+fromDb+'`.`'+table+'`')
+  let toCols=null
+  try{
+    const r=await conn.query('SHOW COLUMNS FROM `'+toDb+'`.`'+table+'`')
+    toCols=r&&r[0]||null
+  }catch(e){
     try{
-      const [cols]=await pool.query('SHOW COLUMNS FROM `'+name+'`');
-      const defs=[];const colNames=[];
-      for(const c of cols||[]){const fname=String(c.Field);let t=String(c.Type||'TEXT');defs.push('`'+fname+'` '+t);colNames.push('`'+fname+'`')}
-      out.push('DROP TABLE IF EXISTS `'+name+'`;');
-      out.push('CREATE TABLE `'+name+'` ('+defs.join(',')+') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;');
-      const [rows]=await pool.query('SELECT * FROM `'+name+'`');
-      if(rows&&rows.length){
-        const chunk=500;for(let i=0;i<rows.length;i+=chunk){const part=rows.slice(i,i+chunk);const values=part.map(obj=>'('+colNames.map(k=>__sqlEsc(obj[k.replace(/`/g,'')])).join(',')+')');out.push('INSERT INTO `'+name+'` ('+colNames.join(',')+') VALUES '+values.join(',')+';')}
-      }
-    }catch(e){}
+      await __ensureArchiveTableLike(conn,fromDb,toDb,table)
+      const r2=await conn.query('SHOW COLUMNS FROM `'+toDb+'`.`'+table+'`')
+      toCols=r2&&r2[0]||null
+    }catch{}
   }
-  out.push('SET FOREIGN_KEY_CHECKS=1;');
+  const toMap=new Map((toCols||[]).map(c=>[String(c.Field||'').toLowerCase(),String(c.Field||'')]))
+  const missing=[]
+  for(const c of fromCols||[]){
+    const name=String(c&&c.Field||'').trim()
+    if(!name)continue
+    if(toMap.has(name.toLowerCase()))continue
+    const type=String(c&&c.Type||'TEXT')
+    missing.push({name,type})
+  }
+  for(const m of missing){
+    try{
+      await conn.query('ALTER TABLE `'+toDb+'`.`'+table+'` ADD COLUMN `'+m.name+'` '+m.type+' NULL')
+    }catch{}
+  }
+  const [toCols2]=await conn.query('SHOW COLUMNS FROM `'+toDb+'`.`'+table+'`')
+  const toMap2=new Map((toCols2||[]).map(c=>[String(c.Field||'').toLowerCase(),String(c.Field||'')]))
+  const common=[]
+  for(const c of fromCols||[]){
+    const name=String(c&&c.Field||'').trim()
+    if(!name)continue
+    const actual=toMap2.get(name.toLowerCase())
+    if(actual)common.push(actual)
+  }
+  return {fromCols:fromCols||[],toCols:toCols2||[],commonCols:common}
+}
+async function __ensureArchiveSetup(pool,sourceDb,archiveDb){
+  if(!isValidName(archiveDb))throw new Error('invalid archive database name')
+  await pool.query('CREATE DATABASE IF NOT EXISTS `'+archiveDb+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+  await __ensureArchiveTableLike(pool,sourceDb,archiveDb,'inflow_purchaseorder')
+  await __ensureArchiveTableLike(pool,sourceDb,archiveDb,'inflow_salesorder')
+  await pool.query('CREATE OR REPLACE VIEW `'+archiveDb+'`.`purchase_order` AS SELECT * FROM `'+archiveDb+'`.`inflow_purchaseorder`')
+  await pool.query('CREATE OR REPLACE VIEW `'+archiveDb+'`.`sales_order` AS SELECT * FROM `'+archiveDb+'`.`inflow_salesorder`')
+}
+function __pickArchiveDateColumn(cols){
+  const list=Array.isArray(cols)?cols:[]
+  const byName=new Map(list.map(c=>[String(c.Field||''),String(c.Type||'')]))
+  const candidates=['Date','OrderDate','DocDate','DocumentDate','CreatedAt','Created','InvoiceDate','ShipDate','DueDate']
+  for(const k of candidates){
+    for(const name of byName.keys()){
+      if(name&&name.toLowerCase()===k.toLowerCase())return name
+    }
+  }
+  for(const [name,type] of byName.entries()){
+    const t=String(type||'').toLowerCase()
+    if(name&&(/date|time|timestamp/.test(t)))return name
+  }
+  return null
+}
+async function __archiveMoveTable(conn,sourceDb,archiveDb,table,cutoff){
+  return await __archiveMoveTableWithOp(conn,sourceDb,archiveDb,table,cutoff,'<')
+}
+async function __archiveMoveTableWithOp(conn,fromDb,toDb,table,cutoff,op){
+  const cmp=(op==='>='?'>=':'<')
+  const {fromCols,commonCols}=await __syncTableColumns(conn,fromDb,toDb,table)
+  const cols=fromCols
+  const dateCol=__pickArchiveDateColumn(cols)
+  if(!dateCol)return {table,moved:0,skipped:true}
+  const fromHasId=(fromCols||[]).some(c=>String(c&&c.Field||'').toLowerCase()==='id')
+  if(!fromHasId)return {table,moved:0,skipped:true}
+  const insertCols=commonCols.filter(c=>String(c||'').toLowerCase()!=='id')
+  if(!insertCols.length)return {table,moved:0,skipped:true}
+  const colsSql=insertCols.map(c=>'`'+c+'`').join(',')
+  let moved=0
+  const chunk=2000
+  while(true){
+    const [idRows]=await conn.query('SELECT `id` FROM `'+fromDb+'`.`'+table+'` WHERE `'+dateCol+'` '+cmp+' ? ORDER BY `id` LIMIT '+chunk,[cutoff])
+    const ids=(idRows||[]).map(r=>r&&r.id).filter(v=>v!=null)
+    if(!ids.length)break
+    const ph=ids.map(()=>'?').join(',')
+    try{
+      await conn.beginTransaction()
+      await conn.query('INSERT INTO `'+toDb+'`.`'+table+'` ('+colsSql+') SELECT '+colsSql+' FROM `'+fromDb+'`.`'+table+'` WHERE `id` IN ('+ph+')',ids)
+      await conn.query('DELETE FROM `'+fromDb+'`.`'+table+'` WHERE `id` IN ('+ph+')',ids)
+      await conn.commit()
+      moved+=ids.length
+    }catch(e){
+      try{await conn.rollback()}catch{}
+      throw e
+    }
+  }
+  return {table,moved,dateCol,fromDb,toDb,op:cmp}
+}
+function __sqlEsc(v){if(v===null||v===undefined)return 'NULL';if(typeof v==='number')return String(v);if(v instanceof Date){const pad=n=>String(n).padStart(2,'0');const Y=v.getFullYear();const M=pad(v.getMonth()+1);const D=pad(v.getDate());const h=pad(v.getHours());const m=pad(v.getMinutes());const s=pad(v.getSeconds());return `'${Y}-${M}-${D} ${h}:${m}:${s}'`};let s=String(v);s=s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r\n/g,'\\n').replace(/\n/g,'\\n');return `'${s}'`}
+function __mysqlBaseCfg(){
+  return {host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',waitForConnections:true,connectionLimit:5,queueLimit:0}
+}
+async function __ensureDatabaseExists(database){
+  if(!mysql)throw new Error('mysql2 not installed')
+  if(!isValidName(database))throw new Error('invalid database name')
+  const cfg2=__mysqlBaseCfg()
+  const bootstrap=mysql.createPool(cfg2)
+  try{
+    await bootstrap.query('CREATE DATABASE IF NOT EXISTS `'+database+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+  }finally{
+    await bootstrap.end()
+  }
+}
+async function nodeDumpDatabases(databases){
+  if(!mysql)throw new Error('mysql2 not installed')
+  const list=(Array.isArray(databases)?databases:[]).map(d=>String(d||'').trim()).filter(Boolean)
+  const uniq=[]
+  const seen=new Set()
+  for(const d of list){const k=d.toLowerCase();if(!seen.has(k)){seen.add(k);uniq.push(d)}}
+  if(!uniq.length)throw new Error('no databases')
+  let out=[]
+  out.push('SET NAMES utf8mb4;')
+  out.push('SET FOREIGN_KEY_CHECKS=0;')
+  for(const database of uniq){
+    await __ensureDatabaseExists(database)
+    out.push('CREATE DATABASE IF NOT EXISTS `'+database+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;')
+    out.push('USE `'+database+'`;')
+    const cfg={...__mysqlBaseCfg(),database}
+    const pool=mysql.createPool(cfg)
+    try{
+      const [tables]=await pool.query('SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[database])
+      for(const r of tables||[]){
+        const name=r&&r.TABLE_NAME;const type=String(r&&r.TABLE_TYPE||'').toUpperCase()
+        if(!name)continue
+        if(type==='VIEW')continue
+        try{
+          const [cols]=await pool.query('SHOW COLUMNS FROM `'+name+'`')
+          const defs=[];const colNames=[]
+          for(const c of cols||[]){const fname=String(c.Field);let t=String(c.Type||'TEXT');defs.push('`'+fname+'` '+t);colNames.push('`'+fname+'`')}
+          out.push('DROP TABLE IF EXISTS `'+name+'`;')
+          out.push('CREATE TABLE `'+name+'` ('+defs.join(',')+') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;')
+          const [rows]=await pool.query('SELECT * FROM `'+name+'`')
+          if(rows&&rows.length){
+            const chunk=500
+            for(let i=0;i<rows.length;i+=chunk){
+              const part=rows.slice(i,i+chunk)
+              const values=part.map(obj=>'('+colNames.map(k=>__sqlEsc(obj[k.replace(/`/g,'')])).join(',')+')')
+              out.push('INSERT INTO `'+name+'` ('+colNames.join(',')+') VALUES '+values.join(',')+';')
+            }
+          }
+        }catch(e){}
+      }
+    }finally{
+      await pool.end()
+    }
+  }
+  out.push('SET FOREIGN_KEY_CHECKS=1;')
   return out.join('\n')
+}
+async function nodeDumpDatabase(database){
+  return await nodeDumpDatabases([database])
 }
 
 async function __firstExisting(paths){
@@ -395,6 +538,106 @@ if(url.pathname==='/api/db/fix-duplicates'&&req.method==='POST'){
   })
   return
 }
+if(url.pathname==='/api/archive/move'&&req.method==='POST'){
+  const s=__getSession(req)
+  if(!s||!s.user){unauthorized(res,'not logged in');return}
+  const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
+    try{
+      const body=Buffer.concat(chunks).toString('utf8')||'{}'
+      const payload=JSON.parse(body||'{}')
+      const confirm=String(payload&&payload.confirm||'').trim().toUpperCase()
+      const password=String(payload&&payload.password||'')
+      const year=Number(payload&&payload.year)||new Date().getFullYear()
+      if(confirm!=='ARCHIVE'){bad(res,'confirmation required');return}
+      const adminPass=String(process.env.IMS_ADMIN_PASSWORD||process.env.IMS_PASSWORD||process.env.ADMIN_PASSWORD||'')
+      if(!adminPass){bad(res,'admin password not configured (set IMS_ADMIN_PASSWORD or IMS_PASSWORD)');return}
+      if(password!==adminPass){unauthorized(res,'invalid admin password');return}
+      if(!Number.isFinite(year)||year<1970||year>2100){bad(res,'invalid year');return}
+      const sourceDb=String(process.env.MYSQL_DATABASE||'ims')
+      const archiveDb=__archiveDbName()
+      const cutoff=`${Math.floor(year)}-01-01 00:00:00`
+      const pool=await ensurePool()
+      await __ensureArchiveSetup(pool,sourceDb,archiveDb)
+      const conn=await pool.getConnection()
+      try{
+        const po=await __archiveMoveTable(conn,sourceDb,archiveDb,'inflow_purchaseorder',cutoff)
+        const so=await __archiveMoveTable(conn,sourceDb,archiveDb,'inflow_salesorder',cutoff)
+        ok(res,{ok:true,archiveDb,cutoff,moved:{purchase_orders:po.moved||0,sales_orders:so.moved||0},details:{purchase:po,sales:so}})
+      }finally{
+        conn.release()
+      }
+    }catch(e){
+      json(res,400,{error:String(e&&e.message||e)})
+    }
+  })
+  return
+}
+if(url.pathname==='/api/archive/rebalance'&&req.method==='POST'){
+  const s=__getSession(req)
+  if(!s||!s.user){unauthorized(res,'not logged in');return}
+  const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
+    try{
+      const body=Buffer.concat(chunks).toString('utf8')||'{}'
+      const payload=JSON.parse(body||'{}')
+      const confirm=String(payload&&payload.confirm||'').trim().toUpperCase()
+      const password=String(payload&&payload.password||'')
+      const year=Number(payload&&payload.year)||new Date().getFullYear()
+      if(confirm!=='REBALANCE'){bad(res,'confirmation required');return}
+      const adminPass=String(process.env.IMS_ADMIN_PASSWORD||process.env.IMS_PASSWORD||process.env.ADMIN_PASSWORD||'')
+      if(!adminPass){bad(res,'admin password not configured (set IMS_ADMIN_PASSWORD or IMS_PASSWORD)');return}
+      if(password!==adminPass){unauthorized(res,'invalid admin password');return}
+      if(!Number.isFinite(year)||year<1970||year>2100){bad(res,'invalid year');return}
+      const sourceDb=String(process.env.MYSQL_DATABASE||'ims')
+      const archiveDb=__archiveDbName()
+      const cutoff=`${Math.floor(year)}-01-01 00:00:00`
+      const pool=await ensurePool()
+      await __ensureArchiveSetup(pool,sourceDb,archiveDb)
+      const conn=await pool.getConnection()
+      try{
+        const poToArchive=await __archiveMoveTableWithOp(conn,sourceDb,archiveDb,'inflow_purchaseorder',cutoff,'<')
+        const soToArchive=await __archiveMoveTableWithOp(conn,sourceDb,archiveDb,'inflow_salesorder',cutoff,'<')
+        const poToCurrent=await __archiveMoveTableWithOp(conn,archiveDb,sourceDb,'inflow_purchaseorder',cutoff,'>=')
+        const soToCurrent=await __archiveMoveTableWithOp(conn,archiveDb,sourceDb,'inflow_salesorder',cutoff,'>=')
+        ok(res,{ok:true,archiveDb,cutoff,movedToArchive:{purchase_orders:poToArchive.moved||0,sales_orders:soToArchive.moved||0},movedToCurrent:{purchase_orders:poToCurrent.moved||0,sales_orders:soToCurrent.moved||0},details:{toArchive:{purchase:poToArchive,sales:soToArchive},toCurrent:{purchase:poToCurrent,sales:soToCurrent}}})
+      }finally{
+        conn.release()
+      }
+    }catch(e){
+      json(res,400,{error:String(e&&e.message||e)})
+    }
+  })
+  return
+}
+if(url.pathname==='/api/archive/orders'&&req.method==='GET'){
+  const type=String(url.searchParams.get('type')||'').trim().toLowerCase()
+  const numRaw=String(url.searchParams.get('num')||'').trim()
+  const num=numRaw.toLowerCase()
+  if(!num){ok(res,{rows:[]});return}
+  const limit=Math.min(500,Math.max(1,parseInt(url.searchParams.get('limit')||'200',10)||200))
+  const isPurchase=type==='purchase'||type==='po'||type==='purchase_order'
+  const isSales=type==='sales'||type==='so'||type==='sales_order'
+  if(!isPurchase&&!isSales){bad(res,'invalid type');return}
+  try{
+    const sourceDb=String(process.env.MYSQL_DATABASE||'ims')
+    const archiveDb=__archiveDbName()
+    const pool=await ensurePool()
+    try{await __ensureArchiveSetup(pool,sourceDb,archiveDb)}catch{}
+    const table=isPurchase?'inflow_purchaseorder':'inflow_salesorder'
+    const candidates=isPurchase?['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo']:['OrderNo','OrderNumber','SO','SalesOrderNo','DocumentNo']
+    const [cols]=await pool.query('SHOW COLUMNS FROM `'+archiveDb+'`.`'+table+'`')
+    const existing=new Map((cols||[]).map(c=>[String(c.Field||'').toLowerCase(),String(c.Field||'')]))
+    const usable=candidates.map(c=>existing.get(c.toLowerCase())).filter(Boolean)
+    if(!usable.length){ok(res,{rows:[]});return}
+    const where=usable.map(c=>'LOWER(CAST(`'+c+'` AS CHAR)) LIKE ?').join(' OR ')
+    const params=usable.map(()=>'%'+num+'%')
+    const sql='SELECT * FROM `'+archiveDb+'`.`'+table+'` WHERE ('+where+') ORDER BY `id` DESC LIMIT '+limit
+    const [rows]=await pool.query(sql,params)
+    ok(res,{rows:rows||[]})
+  }catch(e){
+    ok(res,{rows:[]})
+  }
+  return
+}
 if(url.pathname==='/api/inventory/tracking/validate'&&req.method==='POST'){
   const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
     try{
@@ -484,11 +727,21 @@ const p=url.pathname.replace(/\/+$/,'')
 if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.method==='HEAD')){
   try{
     const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
+    const archiveDb=__archiveDbName()
+    const dbs=[String(cfg.database||'ims'),String(archiveDb||'ims_archive')].filter(Boolean)
+    const seenDb=new Set();const uniqDbs=[]
+    for(const d of dbs){const k=d.toLowerCase();if(!seenDb.has(k)){seenDb.add(k);uniqDbs.push(d)}}
+    try{
+      if(archiveDb&&isValidName(archiveDb)){
+        const pool=await ensurePool()
+        try{await pool.query('CREATE DATABASE IF NOT EXISTS `'+archiveDb+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')}catch{}
+      }
+    }catch{}
     const charsetDir=path.join(__dirname,'mariadb','share','charsets')
     const candRaw=[path.join(__dirname,'mariadb','bin','mysqldump.exe'),path.join(__dirname,'mariadb','bin','mariadb-dump.exe'),'mysqldump.exe','mariadb-dump.exe']
     const cand=[];for(const p of candRaw){try{await stat(p);cand.push(p)}catch{}}
     if(!cand.length){bad(res,'dump tool not found');return}
-    const baseArgs=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--single-transaction','--quick','--routines','--events','--default-character-set=utf8mb4','--set-charset','--skip-tz-utc','--databases',cfg.database]
+    const baseArgs=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--single-transaction','--quick','--routines','--events','--default-character-set=utf8mb4','--set-charset','--skip-tz-utc','--databases',...uniqDbs]
     if(cfg.password){baseArgs.unshift('--password='+cfg.password)}
     try{await stat(charsetDir);baseArgs.push('--character-sets-dir='+charsetDir.replace(/\\/g,'/'))}catch{}
     async function runDump(tool){
@@ -504,7 +757,7 @@ if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.me
     let dumpOut=null;let lastErr=null
     const preferNode=(process.env.SPUDS_BACKUP_MODE||'node').toLowerCase()==='node';
     if(preferNode){
-      try{dumpOut=await nodeDumpDatabase(cfg.database)}catch(e){lastErr=e}
+      try{dumpOut=await nodeDumpDatabases(uniqDbs)}catch(e){lastErr=e}
     }else{
       for(const tool of cand){
         try{dumpOut=await runDump(tool);lastErr=null;break}catch(e){lastErr=e}
@@ -520,7 +773,7 @@ if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.me
       }
       if(!dumpOut){
         try{
-          dumpOut=await nodeDumpDatabase(cfg.database)
+          dumpOut=await nodeDumpDatabases(uniqDbs)
         }catch(e){}
       }
     }
@@ -787,7 +1040,7 @@ async function serveStatic(req,res){
     const ext=path.extname(fp).toLowerCase()
     const map={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'}
     const headers={'Content-Type':map[ext]||'application/octet-stream'}
-    if(ext==='.html'){headers['Cache-Control']='no-store'}
+    if(ext==='.html'||ext==='.js'||ext==='.css'){headers['Cache-Control']='no-store'}
     res.writeHead(200,headers)
     res.end(data)
   }catch{notFound(res)}

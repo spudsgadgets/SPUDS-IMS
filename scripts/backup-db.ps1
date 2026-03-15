@@ -1,5 +1,7 @@
 param(
   [string]$Database = "ims",
+  [string]$ArchiveDatabase = "ims_archive",
+  [string[]]$Databases = @(),
   [string]$OutDir,
   [string]$DbHost = "127.0.0.1",
   [int]$DbPort = 3307,
@@ -27,14 +29,24 @@ $base = "spuds-ims-backup-$ts"
 $sqlName = "$base.sql"
 $sqlPath = Join-Path $OutDir $sqlName
 
-$args = @("--host=$DbHost","--port=$DbPort","--user=$User","--single-transaction","--quick","--routines","--events","--default-character-set=utf8mb4","--databases",$Database)
+$dbList = @()
+if($Databases -and $Databases.Count -gt 0){
+  $dbList = @($Databases | ForEach-Object { "$_".Trim() } | Where-Object { $_ -ne "" })
+}else{
+  $dbList = @("$Database".Trim(),"$ArchiveDatabase".Trim()) | Where-Object { $_ -ne "" }
+}
+$seen = @{}
+$dbList = @($dbList | Where-Object { if($seen.ContainsKey($_.ToLower())){ $false }else{ $seen[$_.ToLower()]=$true; $true } })
+if(-not $dbList -or $dbList.Count -eq 0){ throw "No databases specified." }
+
+$args = @("--host=$DbHost","--port=$DbPort","--user=$User","--single-transaction","--quick","--routines","--events","--default-character-set=utf8mb4","--databases") + $dbList
 if($Password -ne ""){ $args = @("--password=$Password") + $args }
 try{
   $charsetDir = Join-Path $root "mariadb\share\charsets"
   if(Test-Path $charsetDir){ $args += @("--character-sets-dir=" + ($charsetDir -replace '\\','/')) }
 }catch{}
 
-Write-Host "Backing up database '$Database' from ${DbHost}:$DbPort ..."
+Write-Host ("Backing up database(s) '{0}' from {1}:{2} ..." -f ($dbList -join ", "),$DbHost,$DbPort)
 & $dumpExe @args | Out-File -FilePath $sqlPath -Encoding ascii
 Write-Host "Backup created: $sqlPath"
 

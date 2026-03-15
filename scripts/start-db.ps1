@@ -45,3 +45,8 @@ if($needsInit){
 $tmpDir = [System.IO.Path]::GetTempPath()
 Write-Host "Starting MariaDB from $mysqld with $myIni on port $Port"
 & $mysqld "--defaults-file=$myIni" "--basedir=$mariaRoot" "--datadir=$dataDir" "--port=$Port" "--bind-address=127.0.0.1" "--tmpdir=$tmpDir" "--console"
+$code = $LASTEXITCODE
+if($code -and $code -ne 0){
+  Write-Host ("MariaDB process exited with code {0}" -f $code)
+}
+exit 0

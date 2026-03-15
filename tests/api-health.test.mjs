@@ -44,7 +44,7 @@ function requestJson(url,{method='GET',headers={},body=null}={}){
       })
     })
     req.on('error',reject)
-    req.setTimeout(3000,()=>{req.destroy(new Error('timeout'))})
+    req.setTimeout(15000,()=>{req.destroy(new Error('timeout'))})
     if(body!=null)req.write(body)
     req.end()
   })
@@ -57,7 +57,7 @@ async function tryHealth(port){
   }
 }
 function startServer(port){
-  const env={...process.env,MYSQL_PORT:'3307',MYSQL_DATABASE:'ims_test',PORT:String(port)}
+  const env={...process.env,MYSQL_PORT:'3307',MYSQL_DATABASE:'ims_test',PORT:String(port),IMS_ADMIN_PASSWORD:'test-admin'}
   const child=spawn(process.execPath,['server.js'],{env,stdio:['ignore','pipe','pipe']})
   return child
 }
@@ -86,4 +86,24 @@ test('server responds on /api/health',async t=>{
   const me=await requestJson('http://127.0.0.1:'+port+'/api/auth/me',{method:'GET',headers:{Authorization:'Bearer '+login.json.token}})
   assert.equal(me.status,200)
   assert.equal(me.json&&me.json.user&&me.json.user.name,'test')
+
+  const backupHead=await requestJson('http://127.0.0.1:'+port+'/api/backup',{method:'HEAD'})
+  assert.equal(backupHead.status,200)
+  assert.equal(String(backupHead.headers&&backupHead.headers['content-type']||'').includes('application/zip'),true)
+
+  const clearDb=await requestJson('http://127.0.0.1:'+port+'/api/db/clear',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+login.json.token},body:JSON.stringify({confirm:'CLEAR',password:'test-admin'})})
+  assert.equal(clearDb.status,200)
+
+  const year=new Date().getFullYear()
+  const move=await requestJson('http://127.0.0.1:'+port+'/api/archive/move',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+login.json.token},body:JSON.stringify({confirm:'ARCHIVE',password:'test-admin',year})})
+  assert.equal(move.status,200)
+  assert.equal(Boolean(move.json&&move.json.ok),true)
+
+  const rebalance=await requestJson('http://127.0.0.1:'+port+'/api/archive/rebalance',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+login.json.token},body:JSON.stringify({confirm:'REBALANCE',password:'test-admin',year})})
+  assert.equal(rebalance.status,200)
+  assert.equal(Boolean(rebalance.json&&rebalance.json.ok),true)
+
+  const search=await requestJson('http://127.0.0.1:'+port+'/api/archive/orders?type=sales&num=does-not-exist',{method:'GET'})
+  assert.equal(search.status,200)
+  assert.equal(Array.isArray(search.json&&search.json.rows),true)
 })

@@ -7,27 +7,43 @@
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand"><img id="brand-logo" class="brand-logo" alt=""> <span class="brand-name">IMS</span> <span class="brand-ver"></span></div>
-  <nav class="main-nav">
-    <a class="nav-btn active" data-section="dashboard" href="#section-dashboard">Dashboard</a>
-    <a class="nav-btn" data-section="vendor" href="#section-vendor">Vendor</a>
-    <a class="nav-btn" data-section="purchase-order" href="#section-purchase-order">Purchase Order</a>
-    <a class="nav-btn" data-section="inventory" href="#section-inventory">Inventory</a>
-    <a class="nav-btn" data-section="sales-order" href="#section-sales-order">Sales Order</a>
-    <a class="nav-btn" data-section="customer" href="#section-customer">Customer</a>
-    <a class="nav-btn" data-section="help" href="#section-help">Help</a>
-    <a class="nav-btn" data-section="settings" href="#section-settings">Settings</a>
-  </nav>
-  <div class="actions">
-    <input id="global-search" class="top-search" placeholder="SEARCH..." autocomplete="off" spellcheck="false">
-    <span id="auth-user" class="auth-user"></span>
-    <button id="auth-btn" class="auth-btn" type="button">Logout</button>
-    <button id="mode-btn" class="mode-btn">Mobile</button>
-    <button id="theme-btn" class="theme-btn">Dark</button>
-  </div>
-</header>
-<main class="content">
+<div id="nav-backdrop" class="nav-backdrop" aria-hidden="true"></div>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand brand">
+      <img id="brand-logo" class="brand-logo" alt="">
+      <div class="brand-stack">
+        <div class="brand-name">IMS</div>
+        <div class="brand-ver"></div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-btn active" data-section="dashboard" href="#section-dashboard">Dashboard</a>
+      <a class="nav-btn" data-section="vendor" href="#section-vendor">Vendors</a>
+      <a class="nav-btn" data-section="purchase-order" href="#section-purchase-order">Purchase Orders</a>
+      <a class="nav-btn" data-section="inventory" href="#section-inventory">Inventory</a>
+      <a class="nav-btn" data-section="sales-order" href="#section-sales-order">Sales Orders</a>
+      <a class="nav-btn" data-section="customer" href="#section-customer">Customers</a>
+      <div class="sidebar-divider"></div>
+      <a class="nav-btn" data-section="settings" href="#section-settings">Settings</a>
+      <a class="nav-btn" data-section="help" href="#section-help">Help</a>
+    </nav>
+  </aside>
+  <div class="main-area">
+    <header class="appbar">
+      <div class="appbar-left">
+        <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Menu" aria-expanded="false">☰</button>
+        <div class="appbar-title">IMS</div>
+      </div>
+      <div class="actions">
+        <input id="global-search" class="top-search" placeholder="Search…" autocomplete="off" spellcheck="false">
+        <span id="auth-user" class="auth-user"></span>
+        <button id="auth-btn" class="auth-btn" type="button">Logout</button>
+        <button id="mode-btn" class="mode-btn" type="button">Mobile</button>
+        <button id="theme-btn" class="theme-btn" type="button">Dark</button>
+      </div>
+    </header>
+    <main class="content">
   <section id="section-dashboard" class="panel section section-active">
     <div class="dash-wrap">
       <div class="dash-top">
@@ -37,7 +53,7 @@
             <label class="dash-ctl">Lines
               <select id="dash-lines" class="inp dash-select">
                 <option value="sales">Sales Completed</option>
-                <option value="cogs">Cost of Goods Sold</option>
+                <option value="purchases">Purchases (Spend)</option>
                 <option value="customer_payments">Customer Payments Due</option>
                 <option value="vendor_payments">Vendor Payments Due</option>
               </select>
@@ -112,6 +128,31 @@
           </div>
           <ol id="dash-top5-list" class="dash-top5-list"></ol>
           <div id="dash-top5-status" class="status"></div>
+        </div>
+      </div>
+
+      <div class="dash-bottom dash-bottom2">
+        <div class="dash-tasks">
+          <div class="dash-subhead">
+            <div class="dash-h">Pending Tasks</div>
+            <button id="dash-tasks-refresh" class="btn btn-small" type="button">Refresh</button>
+          </div>
+          <div id="dash-tasks-status" class="status"></div>
+          <div id="dash-tasks" class="dash-task-groups"></div>
+        </div>
+
+        <div class="dash-reports">
+          <div class="dash-subhead">
+            <div class="dash-h">Key Reports</div>
+          </div>
+          <div class="dash-report-grid">
+            <button id="dash-report-sales-90" class="btn" type="button">Sales (Last 90 Days)</button>
+            <button id="dash-report-purchases-90" class="btn" type="button">Purchases (Last 90 Days)</button>
+            <button id="dash-report-customer-due" class="btn" type="button">Customer Payments Due</button>
+            <button id="dash-report-vendor-due" class="btn" type="button">Vendor Payments Due</button>
+            <button id="dash-open-so" class="btn" type="button">Open Sales Orders</button>
+            <button id="dash-open-po" class="btn" type="button">Open Purchase Orders</button>
+          </div>
         </div>
       </div>
     </div>
@@ -666,6 +707,11 @@
     <div id="db-restore-status" class="status"></div>
     <div id="db-clear-status" class="status"></div>
     <div class="row">
+      <button id="db-archive">Archive Prior Years</button>
+      <button id="db-archive-rebalance">Rebalance Archive</button>
+    </div>
+    <div id="db-archive-status" class="status"></div>
+    <div class="row">
       <button id="db-normalize">Normalize Collations</button>
       <button id="db-dedupe">Fix Duplicate Records</button>
     </div>
@@ -677,7 +723,9 @@
     </div>
     <div id="selftest-result" class="table-host"></div>
   </section>
-</main>
+    </main>
+  </div>
+</div>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

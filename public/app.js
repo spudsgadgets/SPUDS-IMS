@@ -1,9 +1,11 @@
 const themeBtn=document.getElementById('theme-btn')
 const modeBtn=document.getElementById('mode-btn')
+const navToggleBtn=document.getElementById('nav-toggle')
+const navBackdrop=document.getElementById('nav-backdrop')
 const API_BASE=(location.protocol==='file:'? 'http://localhost:3200' : '')
 function api(path){return API_BASE+path}
 function applyTheme(t){document.body.classList.toggle('dark',t==='dark');try{localStorage.setItem('theme',t)}catch{};if(themeBtn)themeBtn.textContent=t==='dark'?'Light':'Dark'}
-function applyMode(m){document.body.classList.remove('mobile','desktop');if(m==='mobile')document.body.classList.add('mobile');else if(m==='desktop')document.body.classList.add('desktop');try{localStorage.setItem('mode',m)}catch{};if(modeBtn)modeBtn.textContent=m==='mobile'?'Desktop':'Mobile'}
+function applyMode(m){document.body.classList.remove('mobile','desktop');document.body.classList.remove('nav-open');if(m==='mobile')document.body.classList.add('mobile');else if(m==='desktop')document.body.classList.add('desktop');try{localStorage.setItem('mode',m)}catch{};if(modeBtn)modeBtn.textContent=m==='mobile'?'Desktop':'Mobile';if(navToggleBtn)navToggleBtn.setAttribute('aria-expanded','false')}
 let mSaved=null;try{mSaved=localStorage.getItem('mode')}catch{};applyMode(mSaved||(window.innerWidth<=768?'mobile':'desktop'))
 let tSaved=null;try{tSaved=localStorage.getItem('theme')}catch{};applyTheme(tSaved||((window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'))
 if(modeBtn)modeBtn.addEventListener('click',()=>{applyMode(document.body.classList.contains('mobile')?'desktop':'mobile')})
@@ -12,12 +14,36 @@ function __toUpperField(el){if(!el)return;const t=String(el.value||'');const u=t
 function __normalizeAllInputs(){document.querySelectorAll('.inp').forEach(el=>{if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')__toUpperField(el)})}
 document.addEventListener('input',e=>{const el=e&&e.target;if(!el||!el.classList||!el.classList.contains('inp'))return;if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')__toUpperField(el)},true)
 window.addEventListener('load',__normalizeAllInputs)
+function __isOverlayNav(){
+  if(document.body.classList.contains('desktop'))return false
+  if(document.body.classList.contains('mobile'))return true
+  return window.innerWidth<=900
+}
+function __setNavOpen(open){
+  const shouldOpen=!!open
+  document.body.classList.toggle('nav-open',shouldOpen)
+  if(navToggleBtn)navToggleBtn.setAttribute('aria-expanded',shouldOpen?'true':'false')
+}
+if(navToggleBtn)navToggleBtn.addEventListener('click',()=>{
+  __setNavOpen(!document.body.classList.contains('nav-open'))
+})
+if(navBackdrop)navBackdrop.addEventListener('click',()=>{
+  __setNavOpen(false)
+})
+window.addEventListener('keydown',e=>{
+  if(e&&e.key==='Escape'&&document.body.classList.contains('nav-open')){
+    __setNavOpen(false)
+  }
+})
+window.addEventListener('resize',()=>{
+  if(!__isOverlayNav())__setNavOpen(false)
+})
 // navigation
 const navButtons=[...document.querySelectorAll('.nav-btn')]
 const sections=[...document.querySelectorAll('.section')]
 let __currentSection='dashboard'
 function showSection(id){__currentSection=id;sections.forEach(s=>s.classList.toggle('section-active',s.id===('section-'+id)));navButtons.forEach(b=>b.classList.toggle('active',b.dataset.section===id));try{history.replaceState(null,'','#section-'+id)}catch{};if(id==='inventory')initInventoryPage();if(id==='vendor')initVendorPage();if(id==='purchase-order')initPurchaseOrderPage();if(id==='sales-order')initSalesOrderPage();if(id==='customer')initCustomerPage();const gs=document.getElementById('global-search');if(gs&&gs.value)applyGlobalSearch(gs.value)}
-navButtons.forEach(b=>b.addEventListener('click',(e)=>{e.preventDefault();showSection(b.dataset.section)}))
+navButtons.forEach(b=>b.addEventListener('click',(e)=>{e.preventDefault();showSection(b.dataset.section);if(__isOverlayNav())__setNavOpen(false)}))
 // default to dashboard
 showSection('dashboard')
 const tbl=document.getElementById('table')
@@ -145,9 +171,20 @@ const dashTimelineChartEl=document.getElementById('dash-timeline-chart')
 const dashZoomInBtn=document.getElementById('dash-zoom-in')
 const dashZoomOutBtn=document.getElementById('dash-zoom-out')
 const dashChartTypeBtn=document.getElementById('dash-chart-type')
+const dashTasksHost=document.getElementById('dash-tasks')
+const dashTasksStatusEl=document.getElementById('dash-tasks-status')
+const dashTasksRefreshBtn=document.getElementById('dash-tasks-refresh')
+const dashReportSales90Btn=document.getElementById('dash-report-sales-90')
+const dashReportPurchases90Btn=document.getElementById('dash-report-purchases-90')
+const dashReportCustomerDueBtn=document.getElementById('dash-report-customer-due')
+const dashReportVendorDueBtn=document.getElementById('dash-report-vendor-due')
+const dashOpenSoBtn=document.getElementById('dash-open-so')
+const dashOpenPoBtn=document.getElementById('dash-open-po')
 
 let __dashZoom=1
 let __dashChartType='bars'
+const __dashCache=new Map()
+let __dashTasksLoaded=false
 function normalizeKey(k){return String(k||'').replace(/[^a-z0-9]+/ig,'').toLowerCase()}
 function pickField(obj,candidates){
   if(!obj)return null
@@ -261,11 +298,30 @@ function renderTimeline(series){
   const svg=(__dashChartType==='line'?svgLine(series,{width:w,height:h}):svgBars(series,{width:w,height:h}))
   dashTimelineChartEl.innerHTML=svg
 }
-async function fetchSalesOrders(){
-  const r=await fetch(api('/api/data?table=sales_order&limit=200'))
+async function fetchCount(table){
+  const r=await fetch(api('/api/count?table='+encodeURIComponent(table)))
   const j=await r.json().catch(()=>({}))
   if(!r.ok)throw new Error(j.error||String(r.status))
-  return Array.isArray(j.rows)?j.rows:[]
+  return Number(j&&j.count||0)||0
+}
+async function fetchAllRows(table){
+  const now=Date.now()
+  const cached=__dashCache.get(table)
+  if(cached && (now-cached.ts)<15000)return cached.rows
+  const total=await fetchCount(table).catch(()=>0)
+  if(!total){__dashCache.set(table,{ts:now,rows:[]});return []}
+  const limit=1000
+  const all=[]
+  for(let offset=0;offset<total;offset+=limit){
+    const r=await fetch(api('/api/data?table='+encodeURIComponent(table)+'&limit='+limit+'&offset='+offset))
+    const j=await r.json().catch(()=>({}))
+    if(!r.ok)throw new Error(j.error||String(r.status))
+    const rows=Array.isArray(j.rows)?j.rows:[]
+    all.push(...rows)
+    if(rows.length<limit)break
+  }
+  __dashCache.set(table,{ts:now,rows:all})
+  return all
 }
 function renderTop5(items){
   if(!dashTop5ListEl)return
@@ -323,11 +379,11 @@ async function loadTop5SalesOrders(rows){
     if(dashTop5StatusEl)dashTop5StatusEl.textContent='Top 5 error: '+(e&&e.message||e)
   }
 }
-function buildTimelineSeries(rows){
+function __buildTimelineSeriesFromRows(rows,{dateCandidates,amountCandidates,onlyPositive=false}){
   const group=(dashGroupEl&&dashGroupEl.value)||'months'
   const rangeDays=Number((dashRangeEl&&dashRangeEl.value)||90)||90
-  const dateKey=pickField(rows[0],['date','orderdate','order_date','docdate','doc_date','createdat','created_at','timestamp'])
-  const amtKey=pickField(rows[0],['total','grandtotal','grand_total','amount','totalamount','total_amount','subtotal','sub_total'])
+  const dateKey=pickField(rows[0],dateCandidates||['date','orderdate','order_date','docdate','doc_date','createdat','created_at','timestamp'])
+  const amtKey=pickField(rows[0],amountCandidates||['total','grandtotal','grand_total','amount','totalamount','total_amount','subtotal','sub_total'])
   if(!dateKey||!amtKey)return []
   const now=new Date()
   const since=new Date(now.getTime()-rangeDays*24*60*60*1000)
@@ -338,6 +394,7 @@ function buildTimelineSeries(rows){
     const key=(group==='weeks'?startOfWeek(d):startOfMonth(d)).toISOString().slice(0,10)
     const v=toNumber(r[amtKey])
     if(v==null)continue
+    if(onlyPositive && !(v>0))continue
     buckets.set(key,(buckets.get(key)||0)+v)
   }
   const keys=[...buckets.keys()].sort()
@@ -348,12 +405,244 @@ function buildTimelineSeries(rows){
     return {label:fmtBucketLabel(d,group),value:buckets.get(k)||0}
   })
 }
+function buildTimelineSeries(mode,{salesRows,purchaseRows}){
+  if(mode==='customer_payments'){
+    const rows=salesRows||[]
+    return __buildTimelineSeriesFromRows(rows,{dateCandidates:['duedate','due_date','paymentduedate','payment_due_date','due','duedate1','termsduedate'],amountCandidates:['balance','amountdue','amount_due','dueamount','due_amount','remaining','openbalance','open_balance','totaldue','total_due'],onlyPositive:true})
+  }
+  if(mode==='vendor_payments'){
+    const rows=purchaseRows||[]
+    return __buildTimelineSeriesFromRows(rows,{dateCandidates:['duedate','due_date','paymentduedate','payment_due_date','due','duedate1','termsduedate'],amountCandidates:['balance','amountdue','amount_due','dueamount','due_amount','remaining','openbalance','open_balance','totaldue','total_due'],onlyPositive:true})
+  }
+  if(mode==='purchases'){
+    const rows=purchaseRows||[]
+    return __buildTimelineSeriesFromRows(rows,{dateCandidates:['date','orderdate','order_date','docdate','doc_date','createdat','created_at','timestamp'],amountCandidates:['total','grandtotal','grand_total','amount','totalamount','total_amount','subtotal','sub_total'],onlyPositive:true})
+  }
+  const rows=salesRows||[]
+  return __buildTimelineSeriesFromRows(rows,{dateCandidates:['date','orderdate','order_date','docdate','doc_date','createdat','created_at','timestamp'],amountCandidates:['total','grandtotal','grand_total','amount','totalamount','total_amount','subtotal','sub_total'],onlyPositive:true})
+}
+function __startOfToday(){
+  const d=new Date()
+  d.setHours(0,0,0,0)
+  return d
+}
+function __isClosedStatus(v){
+  const s=String(v||'').trim().toLowerCase()
+  if(!s)return false
+  return s.includes('complete')||s.includes('closed')||s.includes('paid')
+}
+function __renderTaskGroups(groups){
+  if(!dashTasksHost)return
+  dashTasksHost.innerHTML=''
+  const nonEmpty=(groups||[]).filter(g=>g&&g.items&&g.items.length)
+  if(!nonEmpty.length){
+    dashTasksHost.innerHTML='<div class="muted">No pending tasks</div>'
+    return
+  }
+  for(const g of nonEmpty){
+    const wrap=document.createElement('div')
+    wrap.className='dash-task-group'
+    const head=document.createElement('div')
+    head.className='dash-task-group-head'
+    const title=document.createElement('div')
+    title.className='dash-task-group-title'
+    title.textContent=g.title||'Tasks'
+    const count=document.createElement('div')
+    count.className='dash-task-group-count'
+    count.textContent=String(g.items.length)
+    head.appendChild(title)
+    head.appendChild(count)
+    wrap.appendChild(head)
+    const items=document.createElement('div')
+    items.className='dash-task-items'
+    for(const it of g.items){
+      const row=document.createElement('div')
+      row.className='dash-task-item'
+      if(it.section)row.dataset.section=it.section
+      if(it.query!=null)row.dataset.query=String(it.query)
+      const left=document.createElement('div')
+      left.className='dash-task-left'
+      const t=document.createElement('div')
+      t.className='dash-task-title'
+      t.textContent=it.title||'—'
+      const sub=document.createElement('div')
+      sub.className='dash-task-sub'
+      sub.textContent=it.sub||''
+      left.appendChild(t)
+      left.appendChild(sub)
+      const right=document.createElement('div')
+      right.className='dash-task-right'
+      right.textContent=it.amount||''
+      row.appendChild(left)
+      row.appendChild(right)
+      row.addEventListener('click',()=>{
+        const section=row.dataset.section||''
+        const q=row.dataset.query||''
+        if(section==='sales-order'){
+          showSection('sales-order')
+          const el=document.getElementById('so-q-num')
+          if(el){el.value=q;try{el.dispatchEvent(new Event('input',{bubbles:true}))}catch{};try{el.dispatchEvent(new Event('change',{bubbles:true}))}catch{}}
+          return
+        }
+        if(section==='purchase-order'){
+          showSection('purchase-order')
+          const el=document.getElementById('po-q-num')
+          if(el){el.value=q;try{el.dispatchEvent(new Event('input',{bubbles:true}))}catch{};try{el.dispatchEvent(new Event('change',{bubbles:true}))}catch{}}
+          return
+        }
+        if(section==='inventory'){
+          showSection('inventory')
+          const el=document.getElementById('inv-q-code')
+          if(el){el.value=q;try{el.dispatchEvent(new Event('input',{bubbles:true}))}catch{};try{el.dispatchEvent(new Event('change',{bubbles:true}))}catch{}}
+          return
+        }
+      })
+      items.appendChild(row)
+    }
+    wrap.appendChild(items)
+    dashTasksHost.appendChild(wrap)
+  }
+}
+async function loadDashboardTasks({force=false}={}){
+  if(!dashTasksHost)return
+  if(dashTasksStatusEl)dashTasksStatusEl.textContent='Loading…'
+  if(force)__dashCache.clear()
+  try{
+    const today=__startOfToday()
+    const [salesRows,purchaseRows,products,invRows,extraRows,trackRows]=await Promise.all([
+      fetchAllRows('sales_order').catch(()=>[]),
+      fetchAllRows('purchase_order').catch(()=>[]),
+      fetchAllRows('inflow_product').catch(()=>[]),
+      fetchAllRows('inflow_inventory').catch(()=>[]),
+      fetchAllRows('inventory_extra').catch(()=>[]),
+      fetchAllRows('inventory_tracking').catch(()=>[])
+    ])
+    const tasks=[]
+    const soNoKey=pickField(salesRows[0],['order_no','orderno','order','order#','so','salesorder','sales_order','number','docno','doc_no','invoice','invoice_no'])
+    const soCustKey=pickField(salesRows[0],['customer','customername','customer_name','billto','bill_to','shipto','ship_to','name','company'])
+    const soDueKey=pickField(salesRows[0],['duedate','due_date','paymentduedate','payment_due_date','due','termsduedate'])
+    const soBalKey=pickField(salesRows[0],['balance','amountdue','amount_due','dueamount','due_amount','remaining','openbalance','open_balance','totaldue','total_due'])
+    const soTotalKey=pickField(salesRows[0],['total','grandtotal','grand_total','amount','totalamount','total_amount','subtotal','sub_total'])
+    const soStatusKey=pickField(salesRows[0],['status','orderstatus','order_status','state'])
+    const soOverdue=[]
+    const soDue=[]
+    for(const r of salesRows||[]){
+      const bal=toNumber(soBalKey?r[soBalKey]:null)
+      const total=toNumber(soTotalKey?r[soTotalKey]:null)
+      const amt=(bal!=null?bal:(total!=null?total:null))
+      if(!(amt>0))continue
+      const status=soStatusKey?String(r[soStatusKey]||''):''
+      if(status && __isClosedStatus(status))continue
+      const due=toDate(soDueKey?r[soDueKey]:null)
+      const orderNo=soNoKey?String(r[soNoKey]??'').trim():''
+      const cust=soCustKey?String(r[soCustKey]??'').trim():''
+      const title=(orderNo?('SO '+orderNo):'Sales Order')+(cust?(' — '+cust):'')
+      const sub=(due?('Due '+due.toLocaleDateString()):'Payment due')+(status?(' · '+status):'')
+      const item={section:'sales-order',query:orderNo||'',title,sub,amount:fmtMoney(amt)}
+      if(due && due<today)soOverdue.push(item)
+      else soDue.push(item)
+    }
+    const poNoKey=pickField(purchaseRows[0],['order_no','orderno','order','order#','po','purchaseorder','purchase_order','number','docno','doc_no','bill','billno','bill_no'])
+    const poVendKey=pickField(purchaseRows[0],['vendor','vendorname','vendor_name','supplier','suppliername','supplier_name','name','company'])
+    const poDueKey=pickField(purchaseRows[0],['duedate','due_date','paymentduedate','payment_due_date','due','termsduedate'])
+    const poBalKey=pickField(purchaseRows[0],['balance','amountdue','amount_due','dueamount','due_amount','remaining','openbalance','open_balance','totaldue','total_due'])
+    const poTotalKey=pickField(purchaseRows[0],['total','grandtotal','grand_total','amount','totalamount','total_amount','subtotal','sub_total'])
+    const poStatusKey=pickField(purchaseRows[0],['status','orderstatus','order_status','state'])
+    const poOverdue=[]
+    const poDue=[]
+    for(const r of purchaseRows||[]){
+      const bal=toNumber(poBalKey?r[poBalKey]:null)
+      const total=toNumber(poTotalKey?r[poTotalKey]:null)
+      const amt=(bal!=null?bal:(total!=null?total:null))
+      if(!(amt>0))continue
+      const status=poStatusKey?String(r[poStatusKey]||''):''
+      if(status && __isClosedStatus(status))continue
+      const due=toDate(poDueKey?r[poDueKey]:null)
+      const orderNo=poNoKey?String(r[poNoKey]??'').trim():''
+      const vend=poVendKey?String(r[poVendKey]??'').trim():''
+      const title=(orderNo?('PO '+orderNo):'Purchase Order')+(vend?(' — '+vend):'')
+      const sub=(due?('Due '+due.toLocaleDateString()):'Payment due')+(status?(' · '+status):'')
+      const item={section:'purchase-order',query:orderNo||'',title,sub,amount:fmtMoney(amt)}
+      if(due && due<today)poOverdue.push(item)
+      else poDue.push(item)
+    }
+    const qohByItem=new Map()
+    for(const r of invRows||[]){
+      const item=String(r.Item||r.item||'').trim()
+      if(!item)continue
+      const q=toNumber(r.Quantity??r.quantity)
+      if(q==null)continue
+      qohByItem.set(item,(qohByItem.get(item)||0)+q)
+    }
+    const extraByKey=new Map()
+    for(const r of extraRows||[]){
+      const k=String(r.ItemKey||r.itemkey||r.item_key||'').trim()
+      if(!k)continue
+      extraByKey.set(k,r)
+    }
+    const lowStock=[]
+    for(const p of products||[]){
+      const name=String(p.Name||p.name||'').trim()
+      if(!name)continue
+      const qoh=qohByItem.get(name)||0
+      const ex=extraByKey.get(name)||null
+      const rp=toNumber(ex?ex.ReorderPoint:null)
+      if(rp==null)continue
+      if(qoh<=rp){
+        const sub=`On hand ${qoh} · Reorder point ${rp}`
+        lowStock.push({section:'inventory',query:name,title:name,sub,amount:''})
+      }
+    }
+    const expired=[]
+    const expSoon=[]
+    const now=new Date()
+    const soonMs=30*24*60*60*1000
+    for(const r of trackRows||[]){
+      const key=String(r.ItemKey||r.itemkey||r.item_key||'').trim()
+      if(!key)continue
+      const expRaw=r.Expiration||r.expiration
+      if(!expRaw)continue
+      const exp=toDate(String(expRaw).slice(0,10))
+      if(!exp)continue
+      const diff=exp.getTime()-now.getTime()
+      const qty=toNumber(r.Quantity??r.quantity) || 0
+      const lot=String(r.Lot||r.lot||'').trim()
+      const serial=String(r.Serial||r.serial||'').trim()
+      const ident=serial?('Serial '+serial):(lot?('Lot '+lot):'')
+      const sub=(ident?ident+' · ':'')+'Exp '+exp.toLocaleDateString()+' · Qty '+qty
+      const item={section:'inventory',query:key,title:key,sub,amount:''}
+      if(diff<0)expired.push(item)
+      else if(diff<=soonMs)expSoon.push(item)
+    }
+    tasks.push({title:'Customer Payments Overdue',items:soOverdue})
+    tasks.push({title:'Customer Payments Due',items:soDue})
+    tasks.push({title:'Vendor Payments Overdue',items:poOverdue})
+    tasks.push({title:'Vendor Payments Due',items:poDue})
+    tasks.push({title:'Low Stock / Reorder',items:lowStock})
+    tasks.push({title:'Expired Inventory',items:expired})
+    tasks.push({title:'Expiring Soon (30 Days)',items:expSoon})
+    __renderTaskGroups(tasks)
+    if(dashTasksStatusEl)dashTasksStatusEl.textContent=''
+  }catch(e){
+    if(dashTasksStatusEl)dashTasksStatusEl.textContent='Pending tasks unavailable'
+    dashTasksHost.innerHTML='<div class="muted">Pending tasks unavailable</div>'
+  }
+}
 async function loadDashboard(){
   if(!dashTimelineChartEl&&!dashTop5ListEl)return
   try{
-    const rows=await fetchSalesOrders()
-    renderTimeline(buildTimelineSeries(rows))
-    await loadTop5SalesOrders(rows)
+    const mode=(dashLinesEl&&dashLinesEl.value)||'sales'
+    const needsSales=(mode==='sales'||mode==='customer_payments'||Boolean(dashTop5ListEl))
+    const needsPo=(mode==='purchases'||mode==='vendor_payments')
+    const [salesRows,purchaseRows]=await Promise.all([
+      needsSales?fetchAllRows('sales_order').catch(()=>[]):Promise.resolve([]),
+      needsPo?fetchAllRows('purchase_order').catch(()=>[]):Promise.resolve([])
+    ])
+    renderTimeline(buildTimelineSeries(mode,{salesRows,purchaseRows}))
+    if(dashTop5ListEl){
+      const sr=salesRows.length?salesRows:await fetchAllRows('sales_order').catch(()=>[])
+      await loadTop5SalesOrders(sr)
+    }
   }catch(e){
     if(dashTimelineChartEl)dashTimelineChartEl.innerHTML='<div class="muted">Timeline unavailable</div>'
     if(dashTop5StatusEl)dashTop5StatusEl.textContent='Top 5 unavailable'
@@ -363,6 +652,10 @@ function reloadDashboard(){
   if(dashTimelineChartEl)dashTimelineChartEl.innerHTML='<div class="muted">Loading timeline…</div>'
   if(dashTop5StatusEl)dashTop5StatusEl.textContent=''
   loadDashboard()
+  if(!__dashTasksLoaded){
+    __dashTasksLoaded=true
+    loadDashboardTasks({force:false})
+  }
 }
 if(dashLinesEl)dashLinesEl.addEventListener('change',reloadDashboard)
 if(dashRangeEl)dashRangeEl.addEventListener('change',reloadDashboard)
@@ -378,6 +671,20 @@ if(dashChartTypeBtn){
     reloadDashboard()
   })
 }
+if(dashTasksRefreshBtn)dashTasksRefreshBtn.addEventListener('click',()=>{loadDashboardTasks({force:true})})
+function __setDashReport(mode,rangeDays){
+  if(dashLinesEl)dashLinesEl.value=mode
+  if(dashRangeEl && rangeDays!=null)dashRangeEl.value=String(rangeDays)
+  if(dashGroupEl)dashGroupEl.value='months'
+  reloadDashboard()
+  try{dashTimelineChartEl&&dashTimelineChartEl.scrollIntoView({behavior:'smooth',block:'start'})}catch{}
+}
+if(dashReportSales90Btn)dashReportSales90Btn.addEventListener('click',()=>__setDashReport('sales',90))
+if(dashReportPurchases90Btn)dashReportPurchases90Btn.addEventListener('click',()=>__setDashReport('purchases',90))
+if(dashReportCustomerDueBtn)dashReportCustomerDueBtn.addEventListener('click',()=>__setDashReport('customer_payments',90))
+if(dashReportVendorDueBtn)dashReportVendorDueBtn.addEventListener('click',()=>__setDashReport('vendor_payments',90))
+if(dashOpenSoBtn)dashOpenSoBtn.addEventListener('click',()=>showSection('sales-order'))
+if(dashOpenPoBtn)dashOpenPoBtn.addEventListener('click',()=>showSection('purchase-order'))
 reloadDashboard()
 function applyLogo(src){if(!logoImg)return;if(src){logoImg.src=src;logoImg.style.display='inline-block'}else{logoImg.removeAttribute('src');logoImg.style.display='none'};if(logoPreview){if(src){logoPreview.src=src;logoPreview.style.display='inline-block'}else{logoPreview.removeAttribute('src');logoPreview.style.display='none'}};if(logoStatus){logoStatus.textContent=src?'Logo set':'No logo'}}
 let savedLogo=null;try{savedLogo=localStorage.getItem('logoSrc')}catch{};applyLogo(savedLogo||'')
@@ -393,6 +700,9 @@ const dedupeBtn=document.getElementById('db-dedupe')
 const dedupeStatus=document.getElementById('db-dedupe-status')
 const clearDbBtn=document.getElementById('db-clear')
 const clearDbStatus=document.getElementById('db-clear-status')
+const archiveBtn=document.getElementById('db-archive')
+const archiveRebalanceBtn=document.getElementById('db-archive-rebalance')
+const archiveStatus=document.getElementById('db-archive-status')
 const selftestBtn=document.getElementById('run-selftest')
 const selftestHost=document.getElementById('selftest-result')
 if(restoreBtn)restoreBtn.addEventListener('click',async()=>{const picker=document.createElement('input');picker.type='file';picker.accept='.sql,.zip';picker.style.display='none';picker.addEventListener('change',async()=>{if(!picker.files||!picker.files[0]){if(restoreStatus)restoreStatus.textContent='Choose a file';return}const f=picker.files[0];if(restoreStatus)restoreStatus.textContent='Restoring...';const isZip=(/\.zip$/i.test(f.name))||f.type==='application/zip';let r;if(isZip){const buf=await f.arrayBuffer();r=await fetch(api('/api/restore'),{method:'POST',headers:{'Content-Type':'application/zip'},body:new Uint8Array(buf)})}else{const text=await f.text();r=await fetch(api('/api/restore'),{method:'POST',headers:{'Content-Type':'text/plain'},body:text})}const j=await r.json().catch(()=>({}));if(restoreStatus)restoreStatus.textContent=r.ok?'Restore completed':('Restore error: '+(j.error||r.status))});document.body.appendChild(picker);picker.click();setTimeout(()=>{try{document.body.removeChild(picker)}catch{}},1000)})
@@ -439,6 +749,48 @@ async function clearDatabaseAction(){
 if(clearDbBtn)clearDbBtn.addEventListener('click',clearDatabaseAction)
 async function runSelftest(){if(selftestHost)selftestHost.textContent='Running...';try{const r=await fetch(api('/api/selftest'));const j=await r.json().catch(()=>({}));if(!r.ok){if(selftestHost)selftestHost.textContent='Diagnostics error: '+(j.error||r.status);return}if(selftestHost)selftestHost.innerHTML='';const container=document.createElement('div');const table=document.createElement('table');table.className='diag-table';const tbody=document.createElement('tbody');function addStatusRow(label,ok,extra){const tr=document.createElement('tr');const td1=document.createElement('td');td1.textContent=label;const td2=document.createElement('td');const span=document.createElement('span');span.className=ok?'status-ok':'status-bad';span.textContent=ok?'OK':'Issue';td2.appendChild(span);if(extra){const sp=document.createElement('span');sp.style.marginLeft='8px';sp.textContent=extra;td2.appendChild(sp)}tr.appendChild(td1);tr.appendChild(td2);tbody.appendChild(tr)}const views=j.views||{};const tables=j.tables||{};const viewsMissing=Object.keys(views).filter(k=>!views[k]);const tablesMissing=Object.keys(tables).filter(k=>!tables[k]);const viewsOk=viewsMissing.length===0;const tablesOk=tablesMissing.length===0;addStatusRow('Database',!!j.db);addStatusRow('Views',viewsOk,viewsOk?'':('missing: '+viewsMissing.join(', ')));addStatusRow('Tables',tablesOk,tablesOk?'':('missing: '+tablesMissing.join(', ')));addStatusRow('API Port',!!j.apiPort,String(j.apiPort||''));addStatusRow('MySQL Port',!!j.mysqlPort,String(j.mysqlPort||''));const ipsRow=document.createElement('tr');const ipsK=document.createElement('td');ipsK.textContent='IPs';const ipsV=document.createElement('td');ipsV.className='diag-ips';const ips=Array.isArray(j.ips)?j.ips:[];if(ips.length){ips.forEach(ip=>{const a=document.createElement('a');a.href='http://'+ip+':'+(j.apiPort||3200)+'/';a.textContent=ip;ipsV.appendChild(a)})}else{const span=document.createElement('span');span.className='status-bad';span.textContent='No non-local IPv4s detected';ipsV.appendChild(span)}ipsRow.appendChild(ipsK);ipsRow.appendChild(ipsV);tbody.appendChild(ipsRow);table.appendChild(tbody);container.appendChild(table);const hints=[];if(!j.db)hints.push('Database connection failed. Start MariaDB and ensure the configured port is reachable.');if(!viewsOk)hints.push('Missing views: '+viewsMissing.join(', ')+'. Ensure base tables exist and the DB user can CREATE VIEW.');if(!tablesOk)hints.push('Missing tables: '+tablesMissing.join(', ')+'. Save a Customer or Inventory item to auto-create, or restart the app.');if(!ips.length)hints.push('No reachable IPv4 address. Check NIC configuration and firewall.');const fwHint='Allow inbound TCP '+(j.apiPort||3200)+' on Windows Firewall and any third-party firewall.';hints.push(fwHint);if(hints.length){const hTitle=document.createElement('div');hTitle.className='section-title';hTitle.textContent='Fix Hints';container.appendChild(hTitle);const ul=document.createElement('ul');hints.forEach(t=>{const li=document.createElement('li');li.textContent=t;ul.appendChild(li)});container.appendChild(ul)}if(selftestHost)selftestHost.appendChild(container)}catch(e){if(selftestHost)selftestHost.textContent='Diagnostics error: '+(e&&e.message||e)}}
 if(selftestBtn)selftestBtn.addEventListener('click',runSelftest)
+async function archivePriorYearsAction(){
+  try{
+    if(archiveStatus)archiveStatus.textContent=''
+    const year=new Date().getFullYear()
+    const ok1=confirm('This will move ALL Purchase Orders and Sales Orders before '+year+' into the archive database. Continue?')
+    if(!ok1){if(archiveStatus)archiveStatus.textContent='Cancelled';return}
+    const phrase=prompt('Type ARCHIVE to confirm:','')
+    if(String(phrase||'').trim().toUpperCase()!=='ARCHIVE'){if(archiveStatus)archiveStatus.textContent='Cancelled';return}
+    const pw=prompt('Enter admin password to archive:','')||''
+    if(archiveStatus)archiveStatus.textContent='Archiving...'
+    const r=await fetch(api('/api/archive/move'),{method:'POST',headers:{'Content-Type':'application/json',...getAuthHeaders()},credentials:'include',body:JSON.stringify({confirm:'ARCHIVE',password:pw,year})})
+    const j=await r.json().catch(()=>({}))
+    if(!r.ok){if(archiveStatus)archiveStatus.textContent='Archive error: '+(j.error||r.status);return}
+    const moved=j&&j.moved||{}
+    const parts=Object.keys(moved).map(k=>k+': '+String(moved[k]||0))
+    if(archiveStatus)archiveStatus.textContent='Archived • '+(parts.length?parts.join(' • '):'done')
+  }catch(e){if(archiveStatus)archiveStatus.textContent='Archive error: '+(e&&e.message||e)}
+}
+if(archiveBtn)archiveBtn.addEventListener('click',archivePriorYearsAction)
+async function archiveRebalanceAction(){
+  try{
+    if(archiveStatus)archiveStatus.textContent=''
+    const year=new Date().getFullYear()
+    const ok1=confirm('This will ensure orders before '+year+' are in the archive, and orders from '+year+' onward are in the current database. Continue?')
+    if(!ok1){if(archiveStatus)archiveStatus.textContent='Cancelled';return}
+    const phrase=prompt('Type REBALANCE to confirm:','')
+    if(String(phrase||'').trim().toUpperCase()!=='REBALANCE'){if(archiveStatus)archiveStatus.textContent='Cancelled';return}
+    const pw=prompt('Enter admin password to rebalance archive:','')||''
+    if(archiveStatus)archiveStatus.textContent='Rebalancing...'
+    const r=await fetch(api('/api/archive/rebalance'),{method:'POST',headers:{'Content-Type':'application/json',...getAuthHeaders()},credentials:'include',body:JSON.stringify({confirm:'REBALANCE',password:pw,year})})
+    const j=await r.json().catch(()=>({}))
+    if(!r.ok){if(archiveStatus)archiveStatus.textContent='Rebalance error: '+(j.error||r.status);return}
+    const toArchive=j&&j.movedToArchive||{}
+    const toCurrent=j&&j.movedToCurrent||{}
+    const parts=[]
+    const mk=(obj,prefix)=>Object.keys(obj||{}).forEach(k=>parts.push(prefix+k+': '+String(obj[k]||0)))
+    mk(toArchive,'to archive • ')
+    mk(toCurrent,'to current • ')
+    if(archiveStatus)archiveStatus.textContent='Rebalanced • '+(parts.length?parts.join(' • '):'done')
+  }catch(e){if(archiveStatus)archiveStatus.textContent='Rebalance error: '+(e&&e.message||e)}
+}
+if(archiveRebalanceBtn)archiveRebalanceBtn.addEventListener('click',archiveRebalanceAction)
 // Vendor page logic
 let __vendorLoaded=false;let __vendors=[];let __vendorSchema=[];let __vendorSource='vendor';
 function pick(row,names){for(const n of names){if(n in row && row[n]!=null && row[n]!=='' )return row[n]}return ''}
@@ -463,9 +815,59 @@ async function saveCustomer(){const name=document.getElementById('c-name')?.valu
 async function initCustomerPage(){if(__customerLoaded){filterCustomer();return}try{const s=await fetch(api('/api/schema?table=customer'));const sj=await s.json().catch(()=>({}));__customerSchema=sj.schema||[];const d=await fetch(api('/api/data?table=customer&limit=1000'));const dj=await d.json().catch(()=>({}));__customers=dj.rows||[];__customerLoaded=true;const qn=document.getElementById('c-q-name');if(qn)qn.addEventListener('input',filterCustomer);const ref=document.getElementById('c-refresh');if(ref)ref.addEventListener('click',async()=>{__customerLoaded=false;await initCustomerPage()});const save=document.getElementById('c-save');if(save)save.addEventListener('click',saveCustomer);const sel=document.getElementById('c-address-type');const ta=document.getElementById('c-address');if(sel)sel.addEventListener('change',syncCustomerAddressUI);if(ta)ta.addEventListener('input',()=>{const type=(sel&& (sel.value||sel.options[sel.selectedIndex]?.text)||'Business Address').toLowerCase();if(type.startsWith('shipping'))__cAddr.shipping=ta.value;else __cAddr.business=ta.value});document.querySelectorAll('#section-customer .tab').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('#section-customer .tab').forEach(b=>b.classList.toggle('active',b===btn));document.querySelectorAll('#section-customer .tabpane').forEach(p=>p.classList.toggle('active',p.id==='c-tab-'+btn.dataset.tab))})});filterCustomer()}catch(e){const list=document.getElementById('c-list');if(list)list.textContent='Error: '+(e&&e.message||e)}}
 // Purchase Order page logic
 let __poLoaded=false;let __poRows=[];let __poSchema=[];
+let __poArchiveQuery=null;let __poArchiveRows=[];
+async function fetchArchiveOrders(type,num){
+  try{
+    const r=await fetch(api('/api/archive/orders?type='+encodeURIComponent(type)+'&num='+encodeURIComponent(num)));
+    const j=await r.json().catch(()=>({}))
+    return Array.isArray(j.rows)?j.rows:[]
+  }catch{return []}
+}
 const __poItemMap=new Map();let __poCurrentKey=null;let __poSelectedIndex=-1;
 function renderPOList(items){const list=document.getElementById('po-list');const count=document.getElementById('po-count');if(!list)return;list.innerHTML='';if(!items.length){list.textContent='No orders';if(count)count.textContent='0';return}const keyNames=['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo'];items.forEach((row,idx)=>{const div=document.createElement('div');div.className='vendor-item';const n=String(pick(row,keyNames)||'(no number)');const s=String(pick(row,['Status'])||'');div.textContent=n+(s?(' — '+s):'');div.addEventListener('click',()=>{document.querySelectorAll('#po-list .vendor-item').forEach(i=>i.classList.remove('active'));div.classList.add('active');bindPO(row)});list.appendChild(div);if(idx===0){div.classList.add('active');bindPO(row)}});if(count)count.textContent=String(items.length)}
-function filterPO(){const qn=(document.getElementById('po-q-num')?.value||'').toLowerCase();const qs=(document.getElementById('po-q-status')?.value||'').toLowerCase();const qv=(document.getElementById('po-q-vendor')?.value||'').toLowerCase();const qf=(document.getElementById('po-q-from')?.value||'').trim();const qt=(document.getElementById('po-q-to')?.value||'').trim();const from=qf?new Date(qf):null;const to=qt?new Date(qt):null;const items=__poRows.filter(r=>{const num=(String(pick(r,['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo']))).toLowerCase();const stat=(String(pick(r,['Status']))).toLowerCase();const ven=(String(pick(r,['Vendor','VendorName','Supplier','Company','Name']))).toLowerCase();let pass=(!qn||num.includes(qn))&&(!qs||stat===qs)&&(!qv||ven===qv);if(pass&&(from||to)){const dv=pick(r,['Date','OrderDate']);const d=dv?new Date(dv):null;if(d&&d.toString()!=='Invalid Date'){if(from&&d<from)pass=false;if(to){const td=new Date(to);td.setHours(23,59,59,999);if(d>td)pass=false}}}return pass});renderPOList(items)}
+function filterPO(){
+  const qn=(document.getElementById('po-q-num')?.value||'').toLowerCase()
+  const qs=(document.getElementById('po-q-status')?.value||'').toLowerCase()
+  const qv=(document.getElementById('po-q-vendor')?.value||'').toLowerCase()
+  const qf=(document.getElementById('po-q-from')?.value||'').trim()
+  const qt=(document.getElementById('po-q-to')?.value||'').trim()
+  const from=qf?new Date(qf):null
+  const to=qt?new Date(qt):null
+  const matches=(r)=>{
+    const num=(String(pick(r,['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo']))).toLowerCase()
+    const stat=(String(pick(r,['Status']))).toLowerCase()
+    const ven=(String(pick(r,['Vendor','VendorName','Supplier','Company','Name']))).toLowerCase()
+    let pass=(!qn||num.includes(qn))&&(!qs||stat===qs)&&(!qv||ven===qv)
+    if(pass&&(from||to)){
+      const dv=pick(r,['Date','OrderDate'])
+      const d=dv?new Date(dv):null
+      if(d&&d.toString()!=='Invalid Date'){
+        if(from&&d<from)pass=false
+        if(to){
+          const td=new Date(to)
+          td.setHours(23,59,59,999)
+          if(d>td)pass=false
+        }
+      }
+    }
+    return pass
+  }
+  const items=__poRows.filter(matches)
+  if(!items.length&&qn){
+    if(__poArchiveQuery===qn){
+      const a=(__poArchiveRows||[]).filter(matches)
+      if(a.length){renderPOList(a);return}
+    }else{
+      __poArchiveQuery=qn
+      __poArchiveRows=[]
+      const list=document.getElementById('po-list');if(list)list.textContent='Searching archive...'
+      const count=document.getElementById('po-count');if(count)count.textContent='0'
+      fetchArchiveOrders('purchase',qn).then(rows=>{if(__poArchiveQuery===qn){__poArchiveRows=rows||[];filterPO()}})
+      return
+    }
+  }
+  renderPOList(items)
+}
 function parseNum(v){if(v==null||v==='')return 0;const n=Number(String(v).replace(/[^0-9.+-]/g,''));return isNaN(n)?0:n}
 function calcTotals(items){const freightEl=document.getElementById('po-freight');const paidEl=document.getElementById('po-paid');let subtotal=0;items.forEach(it=>{const qty=parseNum(it.qty);const price=parseNum(it.price);const disc=parseNum(it.discount);subtotal+=Math.max(0,(qty*price)-disc)});const freight=parseNum(freightEl&&freightEl.value);const paid=parseNum(paidEl&&paidEl.value);const total=subtotal+freight;const balance=Math.max(0,total-paid);const set=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val.toFixed(2)};set('po-subtotal',subtotal);set('po-total',total);set('po-balance',balance)}
 function renderItems(){const itemsHost=document.getElementById('po-items');if(!itemsHost)return;const items=__poItemMap.get(__poCurrentKey)||[];itemsHost.innerHTML='';const table=document.createElement('table');const thead=document.createElement('thead');const trh=document.createElement('tr');['Item','Description','Vendor Product Code','Quantity','Unit Price','Discount','Sub-Total'].forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});thead.appendChild(trh);table.appendChild(thead);const tbody=document.createElement('tbody');items.forEach((it,idx)=>{const tr=document.createElement('tr');tr.dataset.index=String(idx);function cellInput(value,placeholder,onchange,opts){const td=document.createElement('td');const inp=document.createElement('input');inp.className='inp';inp.value=value||'';if(placeholder)inp.placeholder=placeholder;Object.assign(inp,opts||{});inp.addEventListener('input',()=>{onchange(inp.value)});inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const next=inp.closest('td').nextElementSibling?.querySelector('input');if(next){next.focus()}else{addItemRow()}}});td.appendChild(inp);return td}
@@ -487,9 +889,52 @@ async function initPurchaseOrderPage(){if(__poLoaded){filterPO();return}try{cons
 
 // Sales Order page logic
 let __soLoaded=false;let __soRows=[];let __soSchema=[];
+let __soArchiveQuery=null;let __soArchiveRows=[];
 const __soItemMap=new Map();let __soCurrentKey=null;let __soSelectedIndex=-1;
 function renderSOList(items){const list=document.getElementById('so-list');const count=document.getElementById('so-count');if(!list)return;list.innerHTML='';if(!items.length){list.textContent='No orders';if(count)count.textContent='0';return}const keyNames=['OrderNo','OrderNumber','SO','SalesOrderNo','DocumentNo'];items.forEach((row,idx)=>{const div=document.createElement('div');div.className='vendor-item';const n=String(pick(row,keyNames)||'(no number)');const s=String(pick(row,['Status'])||'');div.textContent=n+(s?(' — '+s):'');div.addEventListener('click',()=>{document.querySelectorAll('#so-list .vendor-item').forEach(i=>i.classList.remove('active'));div.classList.add('active');bindSO(row)});list.appendChild(div);if(idx===0){div.classList.add('active');bindSO(row)}});if(count)count.textContent=String(items.length)}
-function filterSO(){const qn=(document.getElementById('so-q-num')?.value||'').toLowerCase();const qs=(document.getElementById('so-q-status')?.value||'').toLowerCase();const qc=(document.getElementById('so-q-customer')?.value||'').toLowerCase();const qf=(document.getElementById('so-q-from')?.value||'').trim();const qt=(document.getElementById('so-q-to')?.value||'').trim();const from=qf?new Date(qf):null;const to=qt?new Date(qt):null;const items=__soRows.filter(r=>{const num=(String(pick(r,['OrderNo','OrderNumber','SO','SalesOrderNo','DocumentNo']))).toLowerCase();const stat=(String(pick(r,['Status']))).toLowerCase();const cust=(String(pick(r,['Customer','CustomerName','Company','Name']))).toLowerCase();let pass=(!qn||num.includes(qn))&&(!qs||stat===qs)&&(!qc||cust===qc);if(pass&&(from||to)){const dv=pick(r,['Date','OrderDate']);const d=dv?new Date(dv):null;if(d&&d.toString()!=='Invalid Date'){if(from&&d<from)pass=false;if(to){const td=new Date(to);td.setHours(23,59,59,999);if(d>td)pass=false}}}return pass});renderSOList(items)}
+function filterSO(){
+  const qn=(document.getElementById('so-q-num')?.value||'').toLowerCase()
+  const qs=(document.getElementById('so-q-status')?.value||'').toLowerCase()
+  const qc=(document.getElementById('so-q-customer')?.value||'').toLowerCase()
+  const qf=(document.getElementById('so-q-from')?.value||'').trim()
+  const qt=(document.getElementById('so-q-to')?.value||'').trim()
+  const from=qf?new Date(qf):null
+  const to=qt?new Date(qt):null
+  const matches=(r)=>{
+    const num=(String(pick(r,['OrderNo','OrderNumber','SO','SalesOrderNo','DocumentNo']))).toLowerCase()
+    const stat=(String(pick(r,['Status']))).toLowerCase()
+    const cust=(String(pick(r,['Customer','CustomerName','Company','Name']))).toLowerCase()
+    let pass=(!qn||num.includes(qn))&&(!qs||stat===qs)&&(!qc||cust===qc)
+    if(pass&&(from||to)){
+      const dv=pick(r,['Date','OrderDate'])
+      const d=dv?new Date(dv):null
+      if(d&&d.toString()!=='Invalid Date'){
+        if(from&&d<from)pass=false
+        if(to){
+          const td=new Date(to)
+          td.setHours(23,59,59,999)
+          if(d>td)pass=false
+        }
+      }
+    }
+    return pass
+  }
+  const items=__soRows.filter(matches)
+  if(!items.length&&qn){
+    if(__soArchiveQuery===qn){
+      const a=(__soArchiveRows||[]).filter(matches)
+      if(a.length){renderSOList(a);return}
+    }else{
+      __soArchiveQuery=qn
+      __soArchiveRows=[]
+      const list=document.getElementById('so-list');if(list)list.textContent='Searching archive...'
+      const count=document.getElementById('so-count');if(count)count.textContent='0'
+      fetchArchiveOrders('sales',qn).then(rows=>{if(__soArchiveQuery===qn){__soArchiveRows=rows||[];filterSO()}})
+      return
+    }
+  }
+  renderSOList(items)
+}
 function calcSOTotals(items){let subtotal=0;items.forEach(it=>{const qty=parseNum(it.qty);const price=parseNum(it.price);const disc=parseNum(it.discount);subtotal+=Math.max(0,(qty*price)-disc)});const total=subtotal;const paid=parseNum(document.getElementById('so-paid')&&document.getElementById('so-paid').value);const balance=Math.max(0,total-paid);const set=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val.toFixed(2)};set('so-subtotal',subtotal);set('so-total',total);set('so-balance',balance)}
 function renderSOItems(){const host=document.getElementById('so-items');if(!host)return;const items=__soItemMap.get(__soCurrentKey)||[];host.innerHTML='';const table=document.createElement('table');const thead=document.createElement('thead');const trh=document.createElement('tr');['Item','Description','Quantity','Unit Price','Discount','Sub-Total'].forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});thead.appendChild(trh);table.appendChild(thead);const tbody=document.createElement('tbody');items.forEach((it,idx)=>{const tr=document.createElement('tr');tr.dataset.index=String(idx);function cellInput(value,placeholder,onchange,opts){const td=document.createElement('td');const inp=document.createElement('input');inp.className='inp';inp.value=value||'';if(placeholder)inp.placeholder=placeholder;Object.assign(inp,opts||{});inp.addEventListener('input',()=>{onchange(inp.value)});inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const next=inp.closest('td').nextElementSibling?.querySelector('input');if(next){next.focus()}else{addSOItemRow()}}});td.appendChild(inp);return td}
   tr.appendChild(cellInput(it.item,'Item',v=>{it.item=v}))

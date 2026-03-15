@@ -1,6 +1,8 @@
 param(
   [Parameter(Mandatory=$true)][string]$Path,
   [string]$Database = "ims",
+  [string]$ArchiveDatabase = "ims_archive",
+  [string[]]$Databases = @(),
   [string]$DbHost = "127.0.0.1",
   [int]$DbPort = 3307,
   [string]$User = "root",
@@ -44,11 +46,27 @@ try{
   $baseArgs = @("--host=$DbHost","--port=$DbPort","--user=$User")
   if($pwdArg){ $baseArgs = @($pwdArg) + $baseArgs }
 
-  if($ForceClean){
-    & $mysqlExe @($baseArgs + @("--execute=DROP DATABASE IF EXISTS `$Database`; CREATE DATABASE `$Database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")) | Out-Null
-    Write-Host "Dropped and recreated database '$Database'."
+  $dbList = @()
+  if($Databases -and $Databases.Count -gt 0){
+    $dbList = @($Databases | ForEach-Object { "$_".Trim() } | Where-Object { $_ -ne "" })
   }else{
-    & $mysqlExe @($baseArgs + @("--execute=CREATE DATABASE IF NOT EXISTS `$Database` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")) | Out-Null
+    $dbList = @("$Database".Trim(),"$ArchiveDatabase".Trim()) | Where-Object { $_ -ne "" }
+  }
+  $seen = @{}
+  $dbList = @($dbList | Where-Object { if($seen.ContainsKey($_.ToLower())){ $false }else{ $seen[$_.ToLower()]=$true; $true } })
+  if(-not $dbList -or $dbList.Count -eq 0){ throw "No databases specified." }
+
+  if($ForceClean){
+    foreach($db in $dbList){
+      $sql = "DROP DATABASE IF EXISTS ``$db``; CREATE DATABASE ``$db`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+      & $mysqlExe @($baseArgs + @("--execute=$sql")) | Out-Null
+    }
+    Write-Host ("Dropped and recreated database(s): {0}" -f ($dbList -join ", "))
+  }else{
+    foreach($db in $dbList){
+      $sql = "CREATE DATABASE IF NOT EXISTS ``$db`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+      & $mysqlExe @($baseArgs + @("--execute=$sql")) | Out-Null
+    }
   }
 
   $src = $workSql.Replace('\','/')

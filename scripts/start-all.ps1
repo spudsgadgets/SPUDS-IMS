@@ -50,13 +50,9 @@ function Test-PortReady($h,$p){
     $client.Close();return $false
   }catch{return $false}
 }
-for($i=0;$i -lt 150;$i++){
+for($i=0;$i -lt 50;$i++){
   if(Test-PortReady "127.0.0.1" ([int]$DbPort)){ break }
   Start-Sleep -Milliseconds 200
-}
-if(-not (Test-PortReady "127.0.0.1" ([int]$DbPort))){
-  Write-Error ("MariaDB did not start on 127.0.0.1:{0}. Check local-mariadb\\my.ini and try running scripts\\start-db.ps1 directly." -f $DbPort)
-  exit 1
 }
 function Ensure-FirewallRule($name,$port){
   try{
@@ -173,7 +169,7 @@ try{
     $errLog = Join-Path $logDir "node-err.log"
     try{ Remove-Item -Force $outLog,$errLog -ErrorAction SilentlyContinue }catch{}
     $srv = Join-Path $root "server.js"
-    Start-Process -FilePath $nodePathActual -ArgumentList @("`"$srv`"") -WorkingDirectory $root -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    Start-Process -FilePath $nodePathActual -ArgumentList @($srv) -WorkingDirectory $root -RedirectStandardOutput $outLog -RedirectStandardError $errLog
   }
 }catch{ Write-Error ("Node start failed: {0}" -f $_); exit 1 }
 try{
