@@ -1,6 +1,7 @@
 import http from 'http'
 import fs from 'fs'
 import { readFile, stat, readdir, writeFile } from 'fs/promises'
+import net from 'net'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { execFile, spawn } from 'child_process'
@@ -38,6 +39,61 @@ function ok(res,obj){json(res,200,obj)}
 function bad(res,msg){json(res,400,{error:msg})}
 function unauthorized(res,msg){json(res,401,{error:msg||'unauthorized'})}
 function notFound(res){json(res,404,{error:'Not found'})}
+function __canConnectTcp(host,port,timeoutMs=500){
+  return new Promise(resolve=>{
+    const p=parseInt(String(port||''),10)
+    if(!p||p<=0){resolve(false);return}
+    const sock=new net.Socket()
+    let done=false
+    const finish=(ok)=>{
+      if(done)return
+      done=true
+      try{sock.destroy()}catch{}
+      resolve(Boolean(ok))
+    }
+    sock.setTimeout(timeoutMs,()=>finish(false))
+    sock.once('error',()=>finish(false))
+    sock.connect(p,host,()=>finish(true))
+  })
+}
+function __sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+async function __waitForTcp(host,port,timeoutMs=12000){
+  const start=Date.now()
+  while(Date.now()-start<timeoutMs){
+    if(await __canConnectTcp(host,port,600))return true
+    await __sleep(200)
+  }
+  return false
+}
+function __isLocalHost(h){
+  const s=String(h||'').trim().toLowerCase()
+  return s==='127.0.0.1'||s==='localhost'||s==='::1'
+}
+async function __startDbIfNeeded({host,port}){
+  const p=String(parseInt(String(port||''),10)||'')
+  if(!p)throw new Error('invalid db port')
+  if(!__isLocalHost(host))throw new Error('db host is not local: '+String(host||''))
+  if(await __canConnectTcp(host,p,600))return {ok:true,started:false,port:p}
+  if(global.__dbStartInFlight){
+    await global.__dbStartInFlight
+    const ok=await __canConnectTcp(host,p,600)
+    return {ok,started:false,port:p}
+  }
+  const dbScript=path.join(__dirname,'scripts','start-db.ps1')
+  if(!fs.existsSync(dbScript))throw new Error('start-db.ps1 not found: '+dbScript)
+  global.__dbStartInFlight=(async()=>{
+    const cp=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',dbScript,'-Port',p],{cwd:__dirname,detached:true,windowsHide:true,stdio:'ignore'})
+    cp.unref()
+    const ok=await __waitForTcp(host,p,12000)
+    if(!ok)throw new Error("MariaDB didn't start on "+host+":"+p)
+  })()
+  try{
+    await global.__dbStartInFlight
+  }finally{
+    global.__dbStartInFlight=null
+  }
+  return {ok:true,started:true,port:p}
+}
 function isValidName(n){return /^[a-zA-Z0-9_]+$/.test(n||'')}
 function toCols(headers){const seen={};return headers.map(h=>{let base=String(h).trim().slice(0,64).replace(/[^a-zA-Z0-9_]/g,'_')||'col';let name=base;let i=1;while(seen[name]){i++;name=base+'_'+i}seen[name]=true;return {name}})}
 function sniff(values){let t='TEXT';let int=true;let float=true;let date=true;for(const v of values){if(v===''||v==null)continue;const s=String(v).trim();if(!/^-?\d+$/.test(s))int=false;if(!/^-?\\d*(\\.\\d+)?$/.test(s))float=false;const d=new Date(s);if(!(d instanceof Date)&&isNaN(d))date=false;else if(isNaN(d))date=false}if(int)return 'BIGINT';if(float)return 'DOUBLE';if(date)return 'DATETIME';return t}
@@ -710,6 +766,28 @@ if(url.pathname==='/api/normalize-collations'&&req.method==='POST'){
   }catch(e){json(res,500,{error:String(e&&e.message||e)})}
   return
 }
+if(url.pathname==='/api/db/start'&&req.method==='POST'){
+  const host=process.env.MYSQL_HOST||'127.0.0.1'
+  const desiredPort=String(parseInt(process.env.MYSQL_PORT||'3307',10)||3307)
+  const ports=[desiredPort]
+  if(desiredPort!=='3306')ports.push('3306')
+  if(desiredPort!=='3307')ports.push('3307')
+  const uniqPorts=[...new Set(ports.filter(Boolean))]
+  try{
+    for(const p of uniqPorts){
+      if(await __canConnectTcp(host,p,600)){ok(res,{ok:true,started:false,host,port:p});return}
+    }
+    let started=null
+    try{started=await __startDbIfNeeded({host,port:desiredPort})}catch{}
+    for(const p of uniqPorts){
+      if(await __canConnectTcp(host,p,600)){ok(res,{ok:true,started:Boolean(started&&started.started),host,port:p});return}
+    }
+    bad(res,"Can't connect to MariaDB on "+host+":"+uniqPorts.join(',')+". Run Start-IMS.cmd and try again.")
+  }catch(e){
+    json(res,400,{error:String(e&&e.message||e)})
+  }
+  return
+}
 if(url.pathname==='/api/db/clear'&&req.method==='POST'){
   const s=__getSession(req)
   if(!s||!s.user){unauthorized(res,'not logged in');return}
@@ -1111,16 +1189,42 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
           job.updatedAt=Date.now()
         }
       }
-      const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
-      const mysqlClient=await ensureMysqlClient(cfg)
+      const desiredPort=String(parseInt(process.env.MYSQL_PORT||'3307',10)||3307)
+      const host=process.env.MYSQL_HOST||'127.0.0.1'
+      const ports=[]
+      ports.push(desiredPort)
+      if(desiredPort!=='3306')ports.push('3306')
+      if(desiredPort!=='3307')ports.push('3307')
+      const uniqPorts=[...new Set(ports.filter(Boolean))]
+      let selectedPort=desiredPort
+      let reachable=false
+      for(const p of uniqPorts){
+        if(await __canConnectTcp(host,p,600)){selectedPort=p;reachable=true;break}
+      }
+      if(!reachable){
+        setStep('starting-db','Starting database…')
+        try{await __startDbIfNeeded({host,port:desiredPort})}catch{}
+        for(const p of uniqPorts){
+          if(await __canConnectTcp(host,p,900)){selectedPort=p;reachable=true;break}
+        }
+        if(!reachable){
+          throw new Error("Can't connect to MariaDB on "+host+":"+uniqPorts.join(',')+". Start the database (Start-IMS.cmd) and try again.")
+        }
+      }
+      const baseCfg={host,user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
+      const mysqlClient=await ensureMysqlClient({...baseCfg,port:selectedPort})
       const mysqlExe=mysqlClient&&mysqlClient.mysqlExe
       if(!mysqlExe){
         const detail=mysqlClient&&mysqlClient.setupError?String(mysqlClient.setupError&&mysqlClient.setupError.message||mysqlClient.setupError):''
         throw new Error(detail?('mysql client not found: '+detail):'mysql client not found (run scripts/setup-portable-mariadb.ps1 or add mysql.exe to PATH)')
       }
-      const runWithFile=async(filePath,totalBytes)=>{
+      const isConnectErr=(msg)=>{
+        const s=String(msg||'')
+        return /ERROR\s+2002|HY000|10061|ECONNREFUSED|Can('|’)t connect to (server|MySQL server)/i.test(s)
+      }
+      const runWithFile=async(filePath,totalBytes,port)=>{
         return await new Promise((resolve,reject)=>{
-          const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--database='+cfg.database];if(cfg.password){args.unshift('--password='+cfg.password)}
+          const args=['--host='+baseCfg.host,'--port='+String(port),'--user='+baseCfg.user,'--database='+baseCfg.database];if(baseCfg.password){args.unshift('--password='+baseCfg.password)}
           const cp=spawn(mysqlExe,args,{windowsHide:true})
           if(job)job.child=cp
           try{cp.stdin.on('error',()=>{})}catch{}
@@ -1141,6 +1245,25 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
           rs.on('error',reject)
           rs.pipe(cp.stdin)
         })
+      }
+      const restoreSqlFile=async(filePath,totalBytes)=>{
+        const candidates=[selectedPort,...uniqPorts.filter(p=>p!==selectedPort)]
+        let lastErr=null
+        for(const p of candidates){
+          setStep('connecting','Connecting to database on '+host+':'+p+'…')
+          try{
+            setStep('restoring','Restoring SQL…')
+            await runWithFile(filePath,totalBytes,p)
+            return
+          }catch(e){
+            lastErr=e
+            if(isConnectErr(e&&e.message||e)){
+              continue
+            }
+            throw e
+          }
+        }
+        throw new Error("Can't connect to MariaDB on "+host+":"+candidates.join(',')+". Start the database (Start-IMS.cmd) and try again. "+String(lastErr&&lastErr.message||lastErr||'').trim())
       }
       const isZip=buf.length>=4&&buf[0]===0x50&&buf[1]===0x4b&&buf[2]===0x03&&buf[3]===0x04
       if(isZip){
@@ -1167,16 +1290,14 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
         if(!sqlFile){try{fs.unlinkSync(zipPath)}catch{};throw new Error('no .sql in zip')}
         const srcWin=path.join(dest,sqlFile)
         const st=await stat(srcWin)
-        setStep('restoring','Restoring SQL…')
-        try{await runWithFile(srcWin,st&&st.size);return}
+        try{await restoreSqlFile(srcWin,st&&st.size);return}
         finally{try{fs.unlinkSync(zipPath)}catch{};try{fs.unlinkSync(srcWin)}catch{}}
       }else{
         const tmp=path.join(os.tmpdir(),`spuds-restore-${Date.now()}.sql`)
         setStep('preparing','Preparing SQL…')
         await writeFile(tmp,buf)
         const st=await stat(tmp)
-        setStep('restoring','Restoring SQL…')
-        try{await runWithFile(tmp,st&&st.size);return}
+        try{await restoreSqlFile(tmp,st&&st.size);return}
         finally{try{fs.unlinkSync(tmp)}catch{}}
       }
     }

@@ -823,6 +823,10 @@ async function __pollRestoreJob(jobId){
 async function __restoreDatabaseFile(f){
   if(!f)return
   try{
+    if(restoreStatus)restoreStatus.textContent='Starting database…'
+    try{
+      await fetch(api('/api/db/start'),{method:'POST'})
+    }catch{}
     const mb=(Number(f.size||0)/1024/1024)
     if(restoreStatus)restoreStatus.textContent='Uploading… '+(mb?mb.toFixed(1)+' MB':'')
     const buf=await f.arrayBuffer()
