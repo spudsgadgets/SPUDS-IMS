@@ -801,7 +801,11 @@ async function __pollRestoreJob(jobId){
         return
       }
       if(j&&j.state==='error'){
-        if(restoreStatus)restoreStatus.textContent='Restore error: '+(msg||'error')
+        let outMsg=(msg||'error')
+        if(/ERROR\s*2002|HY000|10061|ECONNREFUSED|Can('|’)t connect to (server|MySQL server)/i.test(outMsg)){
+          outMsg='Database not running (can’t connect to MariaDB). Run Start-IMS.cmd, then try Restore again.'
+        }
+        if(restoreStatus)restoreStatus.textContent='Restore error: '+outMsg
         try{clearInterval(__restorePollTimer)}catch{};__restorePollTimer=null
         return
       }
@@ -825,7 +829,11 @@ async function __restoreDatabaseFile(f){
     const r=await fetch(api('/api/restore?async=1'),{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:new Uint8Array(buf)})
     const j=await r.json().catch(()=>({}))
     if(!r.ok){
-      if(restoreStatus)restoreStatus.textContent='Restore error: '+(j.error||r.status)
+      let msg=String(j.error||r.status||'error')
+      if(/ERROR\s*2002|HY000|10061|ECONNREFUSED|Can('|’)t connect to (server|MySQL server)/i.test(msg)){
+        msg='Database not running (can’t connect to MariaDB). Run Start-IMS.cmd, then try Restore again.'
+      }
+      if(restoreStatus)restoreStatus.textContent='Restore error: '+msg
       return
     }
     const jobId=String(j&&j.jobId||'').trim()
