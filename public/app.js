@@ -771,7 +771,75 @@ const archiveRebalanceBtn=document.getElementById('db-archive-rebalance')
 const archiveStatus=document.getElementById('db-archive-status')
 const selftestBtn=document.getElementById('run-selftest')
 const selftestHost=document.getElementById('selftest-result')
-if(restoreBtn)restoreBtn.addEventListener('click',async()=>{const picker=document.createElement('input');picker.type='file';picker.accept='.sql,.zip';picker.style.display='none';picker.addEventListener('change',async()=>{if(!picker.files||!picker.files[0]){if(restoreStatus)restoreStatus.textContent='Choose a file';return}const f=picker.files[0];if(restoreStatus)restoreStatus.textContent='Restoring...';const isZip=(/\.zip$/i.test(f.name))||f.type==='application/zip';let r;if(isZip){const buf=await f.arrayBuffer();r=await fetch(api('/api/restore'),{method:'POST',headers:{'Content-Type':'application/zip'},body:new Uint8Array(buf)})}else{const text=await f.text();r=await fetch(api('/api/restore'),{method:'POST',headers:{'Content-Type':'text/plain'},body:text})}const j=await r.json().catch(()=>({}));if(restoreStatus)restoreStatus.textContent=r.ok?'Restore completed':('Restore error: '+(j.error||r.status))});document.body.appendChild(picker);picker.click();setTimeout(()=>{try{document.body.removeChild(picker)}catch{}},1000)})
+function __fmtDur(ms){
+  const s=Math.max(0,Math.floor((Number(ms)||0)/1000))
+  const m=Math.floor(s/60)
+  const r=s%60
+  return String(m).padStart(2,'0')+':'+String(r).padStart(2,'0')
+}
+let __restorePollTimer=null
+async function __pollRestoreJob(jobId){
+  if(__restorePollTimer){try{clearInterval(__restorePollTimer)}catch{};__restorePollTimer=null}
+  const startedAt=Date.now()
+  __restorePollTimer=setInterval(async()=>{
+    try{
+      const r=await fetch(api('/api/restore/status?id='+encodeURIComponent(jobId)))
+      const j=await r.json().catch(()=>({}))
+      if(!r.ok){
+        if(restoreStatus)restoreStatus.textContent='Restore status error: '+(j.error||r.status)
+        try{clearInterval(__restorePollTimer)}catch{};__restorePollTimer=null
+        return
+      }
+      const elapsed=__fmtDur(j&&j.elapsedMs||0)
+      const pct=(j&&j.percent!=null)?(' '+String(j.percent)+'%'):''
+      const step=String(j&&j.step||'restoring')
+      const msg=String(j&&j.message||'')
+      if(j&&j.state==='done'){
+        if(restoreStatus)restoreStatus.textContent='Restore completed'
+        try{clearInterval(__restorePollTimer)}catch{};__restorePollTimer=null
+        setTimeout(()=>{try{location.reload()}catch{}},500)
+        return
+      }
+      if(j&&j.state==='error'){
+        if(restoreStatus)restoreStatus.textContent='Restore error: '+(msg||'error')
+        try{clearInterval(__restorePollTimer)}catch{};__restorePollTimer=null
+        return
+      }
+      if(restoreStatus)restoreStatus.textContent='Restoring… '+step+pct+' • '+elapsed+(msg?(' • '+msg):'')
+      if(Date.now()-startedAt>1000*60*45){
+        if(restoreStatus)restoreStatus.textContent='Restore is taking a long time ('+elapsed+'). Check logs/node-err.log for errors.'
+        try{clearInterval(__restorePollTimer)}catch{};__restorePollTimer=null
+      }
+    }catch(e){
+      if(restoreStatus)restoreStatus.textContent='Restore status error: '+(e&&e.message||e)
+      try{clearInterval(__restorePollTimer)}catch{};__restorePollTimer=null
+    }
+  },1000)
+}
+async function __restoreDatabaseFile(f){
+  if(!f)return
+  try{
+    const mb=(Number(f.size||0)/1024/1024)
+    if(restoreStatus)restoreStatus.textContent='Uploading… '+(mb?mb.toFixed(1)+' MB':'')
+    const buf=await f.arrayBuffer()
+    const r=await fetch(api('/api/restore?async=1'),{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:new Uint8Array(buf)})
+    const j=await r.json().catch(()=>({}))
+    if(!r.ok){
+      if(restoreStatus)restoreStatus.textContent='Restore error: '+(j.error||r.status)
+      return
+    }
+    const jobId=String(j&&j.jobId||'').trim()
+    if(!jobId){
+      if(restoreStatus)restoreStatus.textContent='Restore error: missing job id'
+      return
+    }
+    if(restoreStatus)restoreStatus.textContent='Restoring…'
+    await __pollRestoreJob(jobId)
+  }catch(e){
+    if(restoreStatus)restoreStatus.textContent='Restore error: '+(e&&e.message||e)
+  }
+}
+if(restoreBtn)restoreBtn.addEventListener('click',async()=>{const picker=document.createElement('input');picker.type='file';picker.accept='.sql,.zip';picker.style.display='none';picker.addEventListener('change',async()=>{if(!picker.files||!picker.files[0]){if(restoreStatus)restoreStatus.textContent='Choose a file';return}await __restoreDatabaseFile(picker.files[0])});document.body.appendChild(picker);picker.click();setTimeout(()=>{try{document.body.removeChild(picker)}catch{}},1000)})
 function defaultBackupName(){
   const ts=new Date()
   const pad=n=>String(n).padStart(2,'0')

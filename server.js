@@ -71,6 +71,29 @@ function __authStore(){
   if(!global.__authTokens)global.__authTokens=new Map()
   return global.__authTokens
 }
+function __restoreStore(){
+  if(!global.__restoreJobs)global.__restoreJobs=new Map()
+  return global.__restoreJobs
+}
+function __mintJobId(){
+  return crypto.randomBytes(12).toString('hex')
+}
+function __getJobPublic(job){
+  if(!job)return null
+  const now=Date.now()
+  return {
+    id:job.id,
+    state:job.state,
+    step:job.step||'',
+    message:job.message||'',
+    startedAt:job.startedAt,
+    updatedAt:job.updatedAt,
+    elapsedMs:Math.max(0,now-(job.startedAt||now)),
+    bytesRead:Number(job.bytesRead||0),
+    totalBytes:Number(job.totalBytes||0),
+    percent:(job.totalBytes?Math.max(0,Math.min(100,Math.round((Number(job.bytesRead||0)/Number(job.totalBytes||1))*100))):null)
+  }
+}
 function __mintToken(){
   return crypto.randomBytes(24).toString('hex')
 }
@@ -1080,49 +1103,141 @@ if(url.pathname==='/api/customer/extended'&&req.method==='PUT'){
 }
 if(url.pathname==='/api/restore'&&req.method==='POST'){
   const chunks=[];req.on('data',ch=>{chunks.push(ch)});req.on('end',async()=>{
-    try{
-      if(!chunks.length)return bad(res,'empty');
-      const buf=Buffer.concat(chunks);
-      const isZip=buf.length>=4&&buf[0]===0x50&&buf[1]===0x4b&&buf[2]===0x03&&buf[3]===0x04
+    const runRestoreFromBuffer=async({buf,job})=>{
+      const setStep=(s,m)=>{
+        if(job){
+          job.step=String(s||'')
+          if(m!=null)job.message=String(m||'')
+          job.updatedAt=Date.now()
+        }
+      }
       const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
       const mysqlClient=await ensureMysqlClient(cfg)
       const mysqlExe=mysqlClient&&mysqlClient.mysqlExe
       if(!mysqlExe){
         const detail=mysqlClient&&mysqlClient.setupError?String(mysqlClient.setupError&&mysqlClient.setupError.message||mysqlClient.setupError):''
-        bad(res,detail?('mysql client not found: '+detail):'mysql client not found (run scripts/setup-portable-mariadb.ps1 or add mysql.exe to PATH)')
-        return
+        throw new Error(detail?('mysql client not found: '+detail):'mysql client not found (run scripts/setup-portable-mariadb.ps1 or add mysql.exe to PATH)')
       }
-      const runWithText=async(text)=>{
+      const runWithFile=async(filePath,totalBytes)=>{
         return await new Promise((resolve,reject)=>{
           const args=['--host='+cfg.host,'--port='+cfg.port,'--user='+cfg.user,'--database='+cfg.database];if(cfg.password){args.unshift('--password='+cfg.password)}
           const cp=spawn(mysqlExe,args,{windowsHide:true})
-          let stderr='';cp.stderr.on('data',d=>{stderr+=String(d||'')});cp.on('error',reject);cp.on('close',code=>{if(code!==0){reject(new Error(stderr||('exit '+code)))}else{resolve()}})
-          try{cp.stdin.write(text)}catch(e){reject(e)}finally{try{cp.stdin.end()}catch{}}
+          if(job)job.child=cp
+          try{cp.stdin.on('error',()=>{})}catch{}
+          let stderr=''
+          cp.stderr.on('data',d=>{stderr+=String(d||'');if(job){job.updatedAt=Date.now();job.message=String(stderr||'').split(/\r?\n/).slice(-3).join(' • ').slice(0,500)}})
+          cp.on('error',reject)
+          cp.on('close',code=>{
+            if(job)job.child=null
+            if(job&&job.cancelRequested){reject(new Error('cancelled'));return}
+            if(code!==0){reject(new Error(stderr||('exit '+code)))}else{resolve()}
+          })
+          const rs=fs.createReadStream(filePath)
+          if(job){
+            job.bytesRead=0
+            job.totalBytes=Number(totalBytes||0)
+            rs.on('data',chunk=>{job.bytesRead=(job.bytesRead||0)+chunk.length;job.updatedAt=Date.now()})
+          }
+          rs.on('error',reject)
+          rs.pipe(cp.stdin)
         })
       }
+      const isZip=buf.length>=4&&buf[0]===0x50&&buf[1]===0x4b&&buf[2]===0x03&&buf[3]===0x04
       if(isZip){
+        setStep('extracting','Extracting backup ZIP…')
         const zipPath=path.join(os.tmpdir(),'spuds-restore-'+Date.now()+'.zip')
         await writeFile(zipPath,buf)
         const dest=path.join(os.tmpdir(),'spuds-restore-dir-'+Date.now())
         const cmd='Expand-Archive -Path \"'+zipPath.replace(/\\/g,'/')+'\" -DestinationPath \"'+dest.replace(/\\/g,'/')+'\" -Force'
         await new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-Command',cmd],{windowsHide:true},(e)=>e?reject(e):resolve()))
-        let files=await readdir(dest);const sqlFile=files.find(f=>/\.sql$/i.test(f))
-        if(!sqlFile){bad(res,'no .sql in zip');try{fs.unlinkSync(zipPath)}catch{};return}
+        let files=await readdir(dest);let sqlFile=files.find(f=>/\.sql$/i.test(f))
+        if(!sqlFile){
+          for(const f of files){
+            const p=path.join(dest,f)
+            try{
+              const st=await stat(p)
+              if(st&&st.isDirectory&&st.isDirectory()){
+                const inner=await readdir(p)
+                const found=inner.find(x=>/\.sql$/i.test(x))
+                if(found){sqlFile=path.join(f,found);break}
+              }
+            }catch{}
+          }
+        }
+        if(!sqlFile){try{fs.unlinkSync(zipPath)}catch{};throw new Error('no .sql in zip')}
         const srcWin=path.join(dest,sqlFile)
-        const text=await readFile(srcWin,'utf8')
-        try{await runWithText(text);ok(res,{ok:true})}
-        catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))}
+        const st=await stat(srcWin)
+        setStep('restoring','Restoring SQL…')
+        try{await runWithFile(srcWin,st&&st.size);return}
         finally{try{fs.unlinkSync(zipPath)}catch{};try{fs.unlinkSync(srcWin)}catch{}}
       }else{
         const tmp=path.join(os.tmpdir(),`spuds-restore-${Date.now()}.sql`)
-        await writeFile(tmp,buf.toString('utf8'),'utf8')
-        const text=await readFile(tmp,'utf8')
-        try{await runWithText(text);ok(res,{ok:true})}
-        catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({error:String(e&&e.message||e)}))}
+        setStep('preparing','Preparing SQL…')
+        await writeFile(tmp,buf)
+        const st=await stat(tmp)
+        setStep('restoring','Restoring SQL…')
+        try{await runWithFile(tmp,st&&st.size);return}
         finally{try{fs.unlinkSync(tmp)}catch{}}
       }
-    }catch(e){json(res,500,{error:String(e&&e.message||e)})}
+    }
+    try{
+      if(!chunks.length){bad(res,'empty');return}
+      const buf=Buffer.concat(chunks)
+      if(String(url.searchParams.get('async')||'')==='1'){
+        const store=__restoreStore()
+        const id=__mintJobId()
+        const job={id,state:'running',step:'queued',message:'',startedAt:Date.now(),updatedAt:Date.now(),bytesRead:0,totalBytes:0,cancelRequested:false,child:null,timer:null}
+        store.set(id,job)
+        job.timer=setTimeout(()=>{try{store.delete(id)}catch{}},1000*60*60)
+        ok(res,{ok:true,jobId:id})
+        setImmediate(async()=>{
+          try{
+            job.step='starting'
+            job.updatedAt=Date.now()
+            await runRestoreFromBuffer({buf,job})
+            job.state='done'
+            job.step='done'
+            job.message='Restore completed'
+            job.updatedAt=Date.now()
+          }catch(e){
+            job.state='error'
+            job.step='error'
+            job.message=String(e&&e.message||e)
+            job.updatedAt=Date.now()
+            try{if(job.child){job.child.kill()}}catch{}
+          }
+        })
+        return
+      }
+      await runRestoreFromBuffer({buf,job:null})
+      ok(res,{ok:true})
+    }catch(e){
+      json(res,500,{error:String(e&&e.message||e)})
+    }
   })
+  return
+}
+if(url.pathname==='/api/restore/status'&&req.method==='GET'){
+  const id=String(url.searchParams.get('id')||'').trim()
+  if(!id){bad(res,'missing id');return}
+  const store=__restoreStore()
+  const job=store.get(id)
+  if(!job){json(res,404,{error:'not found'});return}
+  ok(res,__getJobPublic(job))
+  return
+}
+if(url.pathname==='/api/restore/cancel'&&req.method==='POST'){
+  const id=String(url.searchParams.get('id')||'').trim()
+  if(!id){bad(res,'missing id');return}
+  const store=__restoreStore()
+  const job=store.get(id)
+  if(!job){json(res,404,{error:'not found'});return}
+  job.cancelRequested=true
+  job.updatedAt=Date.now()
+  job.step='cancelling'
+  job.message='Cancelling…'
+  try{if(job.child){job.child.kill()}}catch{}
+  ok(res,{ok:true})
   return
 }
 if(url.pathname==='/api/schema'){

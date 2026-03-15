@@ -173,7 +173,19 @@ function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
     if($zip){ $zip.Dispose() }
   }
   Remove-FileRetry $destZip
-  Move-FileRetry $tmpZip $destZip
+  try{
+    $srcDir = Split-Path -Parent $tmpZip
+    $dstDir = Split-Path -Parent $destZip
+    if($srcDir -eq $dstDir){
+      Rename-Item -Force -LiteralPath $tmpZip -NewName (Split-Path -Leaf $destZip) -ErrorAction Stop
+    }else{
+      Move-Item -Force -LiteralPath $tmpZip -Destination $destZip -ErrorAction Stop
+    }
+  }catch{
+    Copy-Item -Force -LiteralPath $tmpZip -Destination $destZip -ErrorAction Stop
+    Remove-FileRetry $tmpZip
+  }
+  if(-not (Test-Path $destZip)){ throw ("Failed to create ZIP: {0}" -f $destZip) }
 }
 $srcNodeMods = Join-Path $root "node_modules"
 $dstNodeMods = Join-Path $bundle "node_modules"
@@ -239,6 +251,15 @@ $meta | ConvertTo-Json -Depth 5 | Out-File -FilePath $metaPath -Encoding UTF8 -F
 $zipLatest = Join-Path $root $ZipName
 $zipRelease = Join-Path $releaseDirPath $releaseName
 New-ZipFromFolder $bundle $zipLatest
+if(-not (Test-Path $zipLatest)){
+  try{
+    $pattern = ($ZipName + ".tmp-*")
+    $fallback = Get-ChildItem -LiteralPath $root -Filter $pattern -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if($fallback){
+      Move-Item -Force -LiteralPath $fallback.FullName -Destination $zipLatest -ErrorAction Stop
+    }
+  }catch{}
+}
 Copy-Item -Force $zipLatest $zipRelease
 Remove-ItemRetry $bundle
 Write-Host "Deploy ZIP created:"
