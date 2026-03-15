@@ -6,11 +6,19 @@ import { fileURLToPath } from 'url'
 import { execFile, spawn } from 'child_process'
 import os from 'os'
 import crypto from 'crypto'
+import zlib from 'zlib'
 const __dirname=path.dirname(fileURLToPath(import.meta.url))
 const PUBLIC=path.join(__dirname,'public')
 const PORT=parseInt(process.env.PORT||'3200',10)
 let mysql
 try{mysql=await import('mysql2/promise')}catch{}
+function __vary(headers,value){
+  const k='Vary'
+  const cur=headers&&headers[k]
+  if(!cur){headers[k]=value;return}
+  const list=String(cur).split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)
+  if(!list.includes(String(value).trim().toLowerCase()))headers[k]=String(cur)+', '+value
+}
 function cors(req,res){
   const origin=String(req&&req.headers&&req.headers.origin||'').trim()
   const allowOrigin=origin==='null'||/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)||/^https?:\/\/\d{1,3}(\.\d{1,3}){3}(:\d+)?$/i.test(origin)
@@ -1015,6 +1023,8 @@ if(url.pathname==='/api/selftest'&&req.method==='GET'){
 notFound(res)
 }
 async function serveStatic(req,res){
+  const method=String(req&&req.method||'GET').toUpperCase()
+  if(method!=='GET'&&method!=='HEAD'){res.writeHead(405,{'Content-Type':'text/plain'});res.end('Method Not Allowed');return}
   const u=new URL(req.url,'http://localhost')
   let p=decodeURIComponent(u.pathname)
   if(p==='/')p='/login.html'
@@ -1028,21 +1038,66 @@ async function serveStatic(req,res){
       return
     }
   }
-  let fp=PUBLIC+p
+  const fp=path.resolve(PUBLIC,'.'+p)
+  if(fp!==PUBLIC && !fp.startsWith(PUBLIC+path.sep)){notFound(res);return}
   try{
     let st=await stat(fp)
     if(st.isDirectory()){
       const index=path.join(fp,'index.html')
       st=await stat(index)
-      fp=index
+      if(index!==PUBLIC && !index.startsWith(PUBLIC+path.sep)){notFound(res);return}
+      p='/'+path.relative(PUBLIC,index).replace(/\\/g,'/')
+      st=await stat(index)
+      const data=await readFile(index)
+      const ext=path.extname(index).toLowerCase()
+      const map={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'}
+      const headers={'Content-Type':map[ext]||'application/octet-stream'}
+      const etag='W/"'+String(st.size)+'-'+String(Math.floor(st.mtimeMs))+'"'
+      headers['ETag']=etag
+      headers['Last-Modified']=st.mtime.toUTCString()
+      if(ext==='.html')headers['Cache-Control']='no-store'
+      else if(ext==='.png')headers['Cache-Control']='public, max-age=604800, immutable'
+      else headers['Cache-Control']='public, max-age=0, must-revalidate'
+      const inm=String(req&&req.headers&&req.headers['if-none-match']||'')
+      if(inm&&inm===etag){res.writeHead(304,headers);res.end();return}
+      const ae=String(req&&req.headers&&req.headers['accept-encoding']||'')
+      const canGzip=(/gzip/i.test(ae))&&(ext==='.html'||ext==='.js'||ext==='.css'||ext==='.json'||ext==='.svg')
+      let body=data
+      if(canGzip&&body&&body.length>1024){
+        body=zlib.gzipSync(body)
+        headers['Content-Encoding']='gzip'
+        __vary(headers,'Accept-Encoding')
+      }
+      headers['Content-Length']=String(body?body.length:0)
+      res.writeHead(200,headers)
+      if(method==='HEAD'){res.end();return}
+      res.end(body)
+      return
     }
     const data=await readFile(fp)
     const ext=path.extname(fp).toLowerCase()
     const map={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'}
     const headers={'Content-Type':map[ext]||'application/octet-stream'}
-    if(ext==='.html'||ext==='.js'||ext==='.css'){headers['Cache-Control']='no-store'}
+    const etag='W/"'+String(st.size)+'-'+String(Math.floor(st.mtimeMs))+'"'
+    headers['ETag']=etag
+    headers['Last-Modified']=st.mtime.toUTCString()
+    if(ext==='.html')headers['Cache-Control']='no-store'
+    else if(ext==='.png')headers['Cache-Control']='public, max-age=604800, immutable'
+    else headers['Cache-Control']='public, max-age=0, must-revalidate'
+    const inm=String(req&&req.headers&&req.headers['if-none-match']||'')
+    if(inm&&inm===etag){res.writeHead(304,headers);res.end();return}
+    const ae=String(req&&req.headers&&req.headers['accept-encoding']||'')
+    const canGzip=(/gzip/i.test(ae))&&(ext==='.html'||ext==='.js'||ext==='.css'||ext==='.json'||ext==='.svg')
+    let body=data
+    if(canGzip&&body&&body.length>1024){
+      body=zlib.gzipSync(body)
+      headers['Content-Encoding']='gzip'
+      __vary(headers,'Accept-Encoding')
+    }
+    headers['Content-Length']=String(body?body.length:0)
     res.writeHead(200,headers)
-    res.end(data)
+    if(method==='HEAD'){res.end();return}
+    res.end(body)
   }catch{notFound(res)}
 }
 const server=http.createServer(async (req,res)=>{try{if(req.url.startsWith('/api/')){await handleAPI(req,res)}else{await serveStatic(req,res)}}catch(e){json(res,500,{error:String(e&&e.message||e)})}})
