@@ -84,6 +84,194 @@ function __getSession(req){
   if(exp&&Date.now()>exp){store.delete(token);return null}
   return {token,user:s.user||null}
 }
+function __toNumber(v){
+  if(v===null||v===undefined)return null
+  if(typeof v==='number'&&isFinite(v))return v
+  const s=String(v||'').trim()
+  if(!s)return null
+  const n=Number(s.replace(/[^0-9.+-]/g,''))
+  return isNaN(n)?null:n
+}
+function __toDate(v){
+  if(!v)return null
+  const d=new Date(v)
+  return (d instanceof Date)&&!isNaN(d)?d:null
+}
+function __parseYmd(v){
+  const s=String(v||'').trim()
+  if(!s)return null
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if(!m)return null
+  const d=new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`)
+  return (d instanceof Date)&&!isNaN(d)?d:null
+}
+function __fmtYmd(d){
+  const dt=d instanceof Date?d:new Date(d)
+  if(!(dt instanceof Date)||isNaN(dt))return ''
+  const pad=n=>String(n).padStart(2,'0')
+  return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`
+}
+function __isClosedStatus(v){
+  const s=String(v||'').trim().toLowerCase()
+  if(!s)return false
+  return s.includes('complete')||s.includes('closed')||s.includes('paid')
+}
+function __pickRow(row,names){
+  for(const n of names){
+    if(!n)continue
+    if(Object.prototype.hasOwnProperty.call(row,n)){
+      const v=row[n]
+      if(v!=null&&v!=='')return v
+    }
+  }
+  return null
+}
+function __escHtml(s){
+  return String(s??'').replace(/[&<>"]/g,ch=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[ch]||ch))
+}
+function __fmtMoney(v){
+  const n=Number(v)
+  if(!isFinite(n))return ''
+  return n.toFixed(2)
+}
+async function __computeStatement({url,partyType}){
+  const name=String(url.searchParams.get('name')||'').trim()
+  if(!name)throw new Error('missing name')
+  const fromRaw=String(url.searchParams.get('from')||'').trim()
+  const toRaw=String(url.searchParams.get('to')||'').trim()
+  const from=fromRaw?__parseYmd(fromRaw):null
+  const to=toRaw?__parseYmd(toRaw):null
+  const openOnly=String(url.searchParams.get('openOnly')||'').trim()==='1'
+  const limit=Math.min(5000,Math.max(1,parseInt(url.searchParams.get('limit')||'2000',10)||2000))
+  const isCustomer=partyType==='customer'
+  const table=isCustomer?'sales_order':'purchase_order'
+  if(isCustomer)await ensureSalesOrderView()
+  else await ensurePurchaseOrderView()
+  const pool=await ensurePool()
+  const [cols]=await pool.query('SHOW COLUMNS FROM `'+table+'`')
+  const colMap=new Map((cols||[]).map(c=>[String(c.Field||'').toLowerCase(),String(c.Field||'')]))
+  const useCols=(cands)=>{
+    const out=[]
+    const seen=new Set()
+    for(const c of cands){
+      const actual=colMap.get(String(c||'').toLowerCase())
+      if(actual&&!seen.has(actual.toLowerCase())){seen.add(actual.toLowerCase());out.push(actual)}
+    }
+    return out
+  }
+  const partyCandidates=isCustomer
+    ?['Customer','CustomerName','Company','Name','BillTo','BillToName','Client','ClientName','Account','AccountName','customer','customer_name','company','name','billto','bill_to','billto_name','bill_to_name','client','client_name','account','account_name']
+    :['Vendor','VendorName','Supplier','SupplierName','Company','Name','vendor','vendor_name','supplier','supplier_name','company','name']
+  const partyCols=useCols(partyCandidates)
+  if(!partyCols.length){
+    return {ok:true,partyType,name,from:from?__fmtYmd(from):(fromRaw||null),to:to?__fmtYmd(to):(toRaw||null),openOnly,lines:[],totals:{total:0,paid:0,balance:0}}
+  }
+  const partyVal=String(name).trim().toLowerCase()
+  const where=partyCols.map(c=>'LOWER(TRIM(CAST(`'+c+'` AS CHAR)))=?').join(' OR ')
+  const params=partyCols.map(()=>partyVal)
+  const [rows]=await pool.query('SELECT * FROM `'+table+'` WHERE ('+where+') ORDER BY `id` DESC LIMIT '+limit,params)
+  const dateCandidates=['Date','OrderDate','Order_Date','DocDate','Doc_Date','DocumentDate','Document_Date','CreatedAt','Created_At','Created','InvoiceDate','Invoice_Date','Timestamp','timestamp']
+  const dueCandidates=['DueDate','Due_Date','PaymentDueDate','Payment_Due_Date','Due','TermsDueDate','termsduedate','duedate']
+  const docCandidates=isCustomer
+    ?['OrderNo','OrderNumber','SO','SalesOrderNo','DocumentNo','DocNo','InvoiceNo','InvoiceNumber','Invoice_No','Invoice_Number']
+    :['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo','DocNo','InvoiceNo','InvoiceNumber','Invoice_No','Invoice_Number']
+  const statusCandidates=['Status','OrderStatus','Order_Status','State','state']
+  const totalCandidates=['Total','GrandTotal','Grand_Total','Amount','TotalAmount','Total_Amount','Subtotal','SubTotal','Sub_Total']
+  const paidCandidates=['Paid','AmountPaid','Amount_Paid','Payments','Payment','PaymentAmount','Payment_Amount']
+  const balanceCandidates=['Balance','BalanceDue','Balance_Due','AmountDue','Amount_Due','DueAmount','Due_Amount','Remaining','OpenBalance','Open_Balance','TotalDue','Total_Due','Due']
+  const dateCols=useCols(dateCandidates)
+  const dueCols=useCols(dueCandidates)
+  const docCols=useCols(docCandidates)
+  const statusCols=useCols(statusCandidates)
+  const totalCols=useCols(totalCandidates)
+  const paidCols=useCols(paidCandidates)
+  const balCols=useCols(balanceCandidates)
+  const lines=[]
+  let totalSum=0
+  let paidSum=0
+  let balSum=0
+  for(const row of rows||[]){
+    const docNo=__pickRow(row,docCols)||__pickRow(row,['id'])||''
+    const dateVal=__pickRow(row,dateCols)
+    const dueVal=__pickRow(row,dueCols)
+    const statusVal=String(__pickRow(row,statusCols)||'')
+    const dateObj=__toDate(dateVal)
+    if(from&&dateObj&&dateObj<from)continue
+    if(to&&dateObj){
+      const end=new Date(to.getTime())
+      end.setHours(23,59,59,999)
+      if(dateObj>end)continue
+    }
+    const total=__toNumber(__pickRow(row,totalCols))
+    const paid=__toNumber(__pickRow(row,paidCols))
+    let balance=__toNumber(__pickRow(row,balCols))
+    if(balance==null){
+      if(total!=null&&paid!=null)balance=total-paid
+      else if(total!=null)balance=total
+    }
+    if(openOnly){
+      if(!(balance>0))continue
+      if(__isClosedStatus(statusVal))continue
+    }
+    if(total!=null)totalSum+=total
+    if(paid!=null)paidSum+=paid
+    if(balance!=null)balSum+=balance
+    lines.push({
+      docNo:String(docNo||''),
+      date:dateVal!=null?String(dateVal):'',
+      dueDate:dueVal!=null?String(dueVal):'',
+      status:statusVal,
+      total:total!=null?Number(total):null,
+      paid:paid!=null?Number(paid):null,
+      balance:balance!=null?Number(balance):null
+    })
+  }
+  lines.sort((a,b)=>{
+    const da=__toDate(a.date)
+    const db=__toDate(b.date)
+    if(da&&db&&da.getTime()!==db.getTime())return da.getTime()-db.getTime()
+    if(da&&!db)return -1
+    if(!da&&db)return 1
+    const an=String(a.docNo||'')
+    const bn=String(b.docNo||'')
+    return an.localeCompare(bn)
+  })
+  return {ok:true,partyType,name,from:from?__fmtYmd(from):(fromRaw||null),to:to?__fmtYmd(to):(toRaw||null),openOnly,lines,totals:{total:Number(totalSum.toFixed(2)),paid:Number(paidSum.toFixed(2)),balance:Number(balSum.toFixed(2))}}
+}
+function __statementHtml(stmt){
+  const partyType=String(stmt&&stmt.partyType||'').toLowerCase()
+  const isCustomer=partyType==='customer'
+  const title='SPUDS IMS — '+(isCustomer?'Customer':'Vendor')+' Statement of Account'
+  const name=String(stmt&&stmt.name||'').trim()
+  const from=stmt&&stmt.from?String(stmt.from):''
+  const to=stmt&&stmt.to?String(stmt.to):''
+  const openOnly=Boolean(stmt&&stmt.openOnly)
+  const totals=stmt&&stmt.totals||{}
+  const lines=Array.isArray(stmt&&stmt.lines)?stmt.lines:[]
+  const rangeLabel=from||to?(`${from||'…'} to ${to||'…'}`):'All dates'
+  const gen=__fmtYmd(new Date())
+  const rows=lines.map(l=>{
+    const date=__escHtml(l&&l.date||'')
+    const doc=__escHtml(l&&l.docNo||'')
+    const status=__escHtml(l&&l.status||'')
+    const due=__escHtml(l&&l.dueDate||'')
+    const total=__fmtMoney(l&&l.total)
+    const paid=__fmtMoney(l&&l.paid)
+    const bal=__fmtMoney(l&&l.balance)
+    return `<tr><td>${date}</td><td>${doc}</td><td>${status}</td><td>${due}</td><td style="text-align:right">${total}</td><td style="text-align:right">${paid}</td><td style="text-align:right">${bal}</td></tr>`
+  }).join('')
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+__escHtml(title)+'</title><link rel="stylesheet" href="./styles.css"><style>body{background:#fff;color:#000}a{color:#000}#print-root{max-width:980px;margin:24px auto;padding:0 12px}@media print{.no-print{display:none!important}body{background:#fff;color:#000}.panel{border:none}.section-title{color:#000}}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ddd;padding:6px 8px;font-size:12px;vertical-align:top}th{text-align:left;font-weight:600}tfoot td{font-weight:600}</style></head><body><div class="no-print" style="display:flex;gap:10px;align-items:center;justify-content:space-between;max-width:980px;margin:16px auto 0;padding:0 12px"><div style="font-weight:600">'+__escHtml(title)+'</div><button id="doPrint" class="btn">Print</button></div><div id="print-root" class="panel"><div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap"><div><div style="font-size:18px;font-weight:700">'+__escHtml(name||'(no name)')+'</div><div class="muted">'+__escHtml(rangeLabel)+(openOnly?' • Open items only':'')+'</div></div><div class="muted">Generated '+__escHtml(gen)+'</div></div><div style="margin-top:14px"><table><thead><tr><th style="width:110px">Date</th><th style="width:140px">Doc #</th><th>Status</th><th style="width:120px">Due</th><th style="width:110px;text-align:right">Total</th><th style="width:110px;text-align:right">Paid</th><th style="width:110px;text-align:right">Balance</th></tr></thead><tbody>'+rows+'</tbody><tfoot><tr><td colspan="4">Totals</td><td style="text-align:right">'+__fmtMoney(totals&&totals.total)+'</td><td style="text-align:right">'+__fmtMoney(totals&&totals.paid)+'</td><td style="text-align:right">'+__fmtMoney(totals&&totals.balance)+'</td></tr></tfoot></table></div><div class="status" style="margin-top:10px">Documents: '+String(lines.length)+'</div></div><script>document.getElementById("doPrint").addEventListener("click",()=>window.print());window.addEventListener("load",()=>setTimeout(()=>window.print(),250));<\/script></body></html>'
+}
+async function __buildStatement({req,res,url,partyType}){
+  const s=__getSession(req)
+  if(!s||!s.user){unauthorized(res,'not logged in');return}
+  try{
+    const stmt=await __computeStatement({url,partyType})
+    ok(res,stmt)
+  }catch(e){
+    json(res,500,{error:String(e&&e.message||e)})
+  }
+}
 async function ensurePool(){
   if(!mysql)throw new Error('mysql2 not installed')
   const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims',waitForConnections:true,connectionLimit:10,queueLimit:0}
@@ -387,6 +575,42 @@ if(url.pathname==='/api/version'&&req.method==='GET'){
   }catch(e){
     ok(res,{version:null,name:'IMS'})
   }
+  return
+}
+if(url.pathname==='/statement/customer'&&req.method==='GET'){
+  const s=__getSession(req)
+  if(!s||!s.user){res.writeHead(302,{Location:'/login.html'});res.end();return}
+  try{
+    const stmt=await __computeStatement({url,partyType:'customer'})
+    const html=__statementHtml(stmt)
+    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'})
+    res.end(html)
+  }catch(e){
+    res.writeHead(400,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'})
+    res.end(String(e&&e.message||e))
+  }
+  return
+}
+if(url.pathname==='/statement/vendor'&&req.method==='GET'){
+  const s=__getSession(req)
+  if(!s||!s.user){res.writeHead(302,{Location:'/login.html'});res.end();return}
+  try{
+    const stmt=await __computeStatement({url,partyType:'vendor'})
+    const html=__statementHtml(stmt)
+    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'})
+    res.end(html)
+  }catch(e){
+    res.writeHead(400,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'})
+    res.end(String(e&&e.message||e))
+  }
+  return
+}
+if(url.pathname==='/api/statement/customer'&&req.method==='GET'){
+  await __buildStatement({req,res,url,partyType:'customer'})
+  return
+}
+if(url.pathname==='/api/statement/vendor'&&req.method==='GET'){
+  await __buildStatement({req,res,url,partyType:'vendor'})
   return
 }
 if(url.pathname==='/api/inventory/extended'&&req.method==='GET'){
@@ -1100,5 +1324,5 @@ async function serveStatic(req,res){
     res.end(body)
   }catch{notFound(res)}
 }
-const server=http.createServer(async (req,res)=>{try{if(req.url.startsWith('/api/')){await handleAPI(req,res)}else{await serveStatic(req,res)}}catch(e){json(res,500,{error:String(e&&e.message||e)})}})
+const server=http.createServer(async (req,res)=>{try{const u=String(req&&req.url||'');if(u.startsWith('/api/')||u.startsWith('/statement/')){await handleAPI(req,res)}else{await serveStatic(req,res)}}catch(e){json(res,500,{error:String(e&&e.message||e)})}})
 server.listen(PORT,'0.0.0.0',()=>{})

@@ -61,14 +61,27 @@ if(Test-Path $mariaInclude){
 }
 function TryNpmInstall($dir){
   try{
+    $nodeCmd = Get-Command -Name node -ErrorAction SilentlyContinue
+    $nodeExe = $null
+    if($nodeCmd -and $nodeCmd.Source){ $nodeExe = $nodeCmd.Source }
+    if(-not $nodeExe){
+      $defaultNode = "C:\Program Files\nodejs\node.exe"
+      if(Test-Path $defaultNode){ $nodeExe = $defaultNode }
+    }
+    $npmCli = $null
+    if($nodeExe){
+      $nodeDir = Split-Path -Parent $nodeExe
+      $cand = Join-Path $nodeDir "node_modules\npm\bin\npm-cli.js"
+      if(Test-Path $cand){ $npmCli = $cand }
+    }
     $npm = Get-Command -Name npm -ErrorAction SilentlyContinue
-    if(-not $npm){ Write-Warning "npm not found; will copy node_modules from root if available."; return $false }
+    if(-not $npmCli -and -not $npm){ Write-Warning "npm not found; will copy node_modules from root if available."; return $false }
     Push-Location $dir
     try{
       if(Test-Path (Join-Path $dir "package-lock.json")){
-        & npm ci --omit=dev --no-audit --no-fund --loglevel=error
+        if($npmCli){ & $nodeExe $npmCli ci --omit=dev --no-audit --no-fund --loglevel=error } else { & npm ci --omit=dev --no-audit --no-fund --loglevel=error }
       }else{
-        & npm install --omit=dev --no-audit --no-fund --loglevel=error
+        if($npmCli){ & $nodeExe $npmCli install --omit=dev --no-audit --no-fund --loglevel=error } else { & npm install --omit=dev --no-audit --no-fund --loglevel=error }
       }
       if($LASTEXITCODE -ne 0){ return $false }
       Write-Host "Installed production dependencies in bundle via npm."

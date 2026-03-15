@@ -94,6 +94,72 @@ function printUserManual(){
   w.document.write(html)
   w.document.close()
 }
+function __escHtml(s){
+  return String(s??'').replace(/[&<>"]/g,ch=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[ch]||ch))
+}
+function __fmtMoney(v){
+  const n=Number(v)
+  if(!isFinite(n))return ''
+  return n.toFixed(2)
+}
+function __fmtYmd(d){
+  const dt=d instanceof Date?d:new Date(d)
+  if(!(dt instanceof Date)||isNaN(dt))return ''
+  const pad=n=>String(n).padStart(2,'0')
+  return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`
+}
+function __printStatement(stmt,targetWindow){
+  const partyType=String(stmt&&stmt.partyType||'').toLowerCase()
+  const isCustomer=partyType==='customer'
+  const title='SPUDS IMS — '+(isCustomer?'Customer':'Vendor')+' Statement of Account'
+  const name=String(stmt&&stmt.name||'').trim()
+  const from=stmt&&stmt.from?String(stmt.from):''
+  const to=stmt&&stmt.to?String(stmt.to):''
+  const openOnly=Boolean(stmt&&stmt.openOnly)
+  const totals=stmt&&stmt.totals||{}
+  const lines=Array.isArray(stmt&&stmt.lines)?stmt.lines:[]
+  const rangeLabel=from||to?(`${from||'…'} to ${to||'…'}`):'All dates'
+  const gen=__fmtYmd(new Date())
+  const rowsHtml=lines.map(l=>{
+    const date=__escHtml(l&&l.date||'')
+    const doc=__escHtml(l&&l.docNo||'')
+    const status=__escHtml(l&&l.status||'')
+    const due=__escHtml(l&&l.dueDate||'')
+    const total=__fmtMoney(l&&l.total)
+    const paid=__fmtMoney(l&&l.paid)
+    const bal=__fmtMoney(l&&l.balance)
+    return `<tr><td>${date}</td><td>${doc}</td><td>${status}</td><td>${due}</td><td style="text-align:right">${total}</td><td style="text-align:right">${paid}</td><td style="text-align:right">${bal}</td></tr>`
+  }).join('')
+  const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+__escHtml(title)+'</title><link rel="stylesheet" href="./styles.css"><style>body{background:#fff;color:#000}a{color:#000}#print-root{max-width:980px;margin:24px auto;padding:0 12px}@media print{.no-print{display:none!important}body{background:#fff;color:#000}.panel{border:none}.section-title{color:#000}}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ddd;padding:6px 8px;font-size:12px;vertical-align:top}th{text-align:left;font-weight:600}tfoot td{font-weight:600}</style></head><body><div class="no-print" style="display:flex;gap:10px;align-items:center;justify-content:space-between;max-width:980px;margin:16px auto 0;padding:0 12px"><div style="font-weight:600">'+__escHtml(title)+'</div><button id="doPrint" class="btn">Print</button></div><div id="print-root" class="panel"><div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap"><div><div style="font-size:18px;font-weight:700">'+__escHtml(name||'(no name)')+'</div><div class="muted">'+__escHtml(rangeLabel)+(openOnly?' • Open items only':'')+'</div></div><div class="muted">Generated '+__escHtml(gen)+'</div></div><div style="margin-top:14px"><table><thead><tr><th style="width:110px">Date</th><th style="width:140px">Doc #</th><th>Status</th><th style="width:120px">Due</th><th style="width:110px;text-align:right">Total</th><th style="width:110px;text-align:right">Paid</th><th style="width:110px;text-align:right">Balance</th></tr></thead><tbody>'+rowsHtml+'</tbody><tfoot><tr><td colspan="4">Totals</td><td style="text-align:right">'+__fmtMoney(totals&&totals.total)+'</td><td style="text-align:right">'+__fmtMoney(totals&&totals.paid)+'</td><td style="text-align:right">'+__fmtMoney(totals&&totals.balance)+'</td></tr></tfoot></table></div><div class="status" style="margin-top:10px">Documents: '+String(lines.length)+'</div></div><script>document.getElementById("doPrint").addEventListener("click",()=>window.print());window.addEventListener("load",()=>setTimeout(()=>window.print(),250));<\/script></body></html>'
+  const w=targetWindow||window.open('','_blank','noopener,noreferrer')
+  if(!w)return
+  w.document.open()
+  w.document.write(html)
+  w.document.close()
+}
+async function openStatementOfAccount(partyType,name){
+  const cleanName=String(name||'').trim()
+  if(!cleanName){alert('Select a '+(partyType==='customer'?'customer':'vendor')+' first');return}
+  const toDefault=__fmtYmd(new Date())
+  const fromDt=new Date();fromDt.setDate(fromDt.getDate()-90)
+  const fromDefault=__fmtYmd(fromDt)
+  const from=String(prompt('From date (YYYY-MM-DD), blank for all:',fromDefault)||'').trim()
+  const to=String(prompt('To date (YYYY-MM-DD), blank for all:',toDefault)||'').trim()
+  const openOnly=confirm('Open items only?')
+  const qs=[
+    'name='+encodeURIComponent(cleanName),
+    from?('from='+encodeURIComponent(from)):'',
+    to?('to='+encodeURIComponent(to)):'',
+    'openOnly='+(openOnly?1:0)
+  ].filter(Boolean).join('&')
+  const url=api('/statement/'+encodeURIComponent(partyType)+'?'+qs)
+  const w=window.open(url,'_blank','noopener,noreferrer')
+  if(!w){
+    try{location.href=url}catch{}
+  }else{
+    try{w.focus&&w.focus()}catch{}
+  }
+}
 if(helpPrintBtn)helpPrintBtn.addEventListener('click',printUserManual)
 if(file){file.addEventListener('change',()=>{if(file.files&&file.files[0]&&!tbl.value){const n=file.files[0].name.replace(/\.csv$/i,'').replace(/[^a-z0-9_]+/ig,'_');tbl.value=n||'inventory'}})}
 function getAuthHeaders(){let h={};try{const t=localStorage.getItem('ims_token');if(t)h['Authorization']='Bearer '+t}catch{};return h}
@@ -812,7 +878,47 @@ function syncCustomerAddressUI(){const sel=document.getElementById('c-address-ty
 async function loadCustomerExtended(name){if(!name)return;try{const r=await fetch(api('/api/customer/extended?name='+encodeURIComponent(name)));const j=await r.json().catch(()=>({}));if(j&&j.extra){const x=j.extra;__cAddr.business=String((x.BusinessAddress??x.Address??'')||'');__cAddr.shipping=String((x.ShipToAddress??'')||'');[['c-contact','Contact'],['c-phone','Phone'],['c-fax','Fax'],['c-email','Email'],['c-website','Website'],['c-currency','Currency'],['c-discount','Discount'],['c-terms','PaymentTerms'],['c-tax','TaxingScheme'],['c-tax-exempt','TaxExempt'],['c-remarks','Remarks']].forEach(([id,key])=>{const el=document.getElementById(id);if(el)el.value=(x[key]!=null?String(x[key]):el.value)});syncCustomerAddressUI()}}catch{}}
 function gatherCustomerPayload(){const sel=document.getElementById('c-address-type');const ta=document.getElementById('c-address');if(sel&&ta){const type=(sel.value||sel.options[sel.selectedIndex]?.text||'Business Address').toLowerCase();if(type.startsWith('shipping'))__cAddr.shipping=ta.value;else __cAddr.business=ta.value}return {extra:{BusinessAddress:__cAddr.business||null,ShipToAddress:__cAddr.shipping||null,Address:__cAddr.business||null,Contact:document.getElementById('c-contact')?.value||null,Phone:document.getElementById('c-phone')?.value||null,Fax:document.getElementById('c-fax')?.value||null,Email:document.getElementById('c-email')?.value||null,Website:document.getElementById('c-website')?.value||null,Currency:document.getElementById('c-currency')?.value||null,Discount:document.getElementById('c-discount')?.value||null,PaymentTerms:document.getElementById('c-terms')?.value||null,TaxingScheme:document.getElementById('c-tax')?.value||null,TaxExempt:document.getElementById('c-tax-exempt')?.value||null,Remarks:document.getElementById('c-remarks')?.value||null}}}
 async function saveCustomer(){const name=document.getElementById('c-name')?.value||'';if(!name)return;const payload=gatherCustomerPayload();const r=await fetch(api('/api/customer/extended?name='+encodeURIComponent(name)),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const jr=await r.json().catch(()=>({}));if(jr&&jr.ok===false&&jr.error){alert(jr.error)}}
-async function initCustomerPage(){if(__customerLoaded){filterCustomer();return}try{const s=await fetch(api('/api/schema?table=customer'));const sj=await s.json().catch(()=>({}));__customerSchema=sj.schema||[];const d=await fetch(api('/api/data?table=customer&limit=1000'));const dj=await d.json().catch(()=>({}));__customers=dj.rows||[];__customerLoaded=true;const qn=document.getElementById('c-q-name');if(qn)qn.addEventListener('input',filterCustomer);const ref=document.getElementById('c-refresh');if(ref)ref.addEventListener('click',async()=>{__customerLoaded=false;await initCustomerPage()});const save=document.getElementById('c-save');if(save)save.addEventListener('click',saveCustomer);const sel=document.getElementById('c-address-type');const ta=document.getElementById('c-address');if(sel)sel.addEventListener('change',syncCustomerAddressUI);if(ta)ta.addEventListener('input',()=>{const type=(sel&& (sel.value||sel.options[sel.selectedIndex]?.text)||'Business Address').toLowerCase();if(type.startsWith('shipping'))__cAddr.shipping=ta.value;else __cAddr.business=ta.value});document.querySelectorAll('#section-customer .tab').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('#section-customer .tab').forEach(b=>b.classList.toggle('active',b===btn));document.querySelectorAll('#section-customer .tabpane').forEach(p=>p.classList.toggle('active',p.id==='c-tab-'+btn.dataset.tab))})});filterCustomer()}catch(e){const list=document.getElementById('c-list');if(list)list.textContent='Error: '+(e&&e.message||e)}}
+async function initCustomerPage(){
+  const stmt=document.getElementById('customer-statement')
+  if(stmt&&!stmt.dataset.bound){
+    stmt.dataset.bound='1'
+    stmt.addEventListener('click',()=>openStatementOfAccount('customer',document.getElementById('c-name')?.value||''))
+  }
+  if(__customerLoaded){filterCustomer();return}
+  try{
+    const s=await fetch(api('/api/schema?table=customer'))
+    const sj=await s.json().catch(()=>({}))
+    __customerSchema=sj.schema||[]
+    const d=await fetch(api('/api/data?table=customer&limit=1000'))
+    const dj=await d.json().catch(()=>({}))
+    __customers=dj.rows||[]
+    __customerLoaded=true
+    const qn=document.getElementById('c-q-name')
+    if(qn)qn.addEventListener('input',filterCustomer)
+    const ref=document.getElementById('c-refresh')
+    if(ref)ref.addEventListener('click',async()=>{__customerLoaded=false;await initCustomerPage()})
+    const save=document.getElementById('c-save')
+    if(save)save.addEventListener('click',saveCustomer)
+    const sel=document.getElementById('c-address-type')
+    const ta=document.getElementById('c-address')
+    if(sel)sel.addEventListener('change',syncCustomerAddressUI)
+    if(ta)ta.addEventListener('input',()=>{
+      const type=(sel&& (sel.value||sel.options[sel.selectedIndex]?.text)||'Business Address').toLowerCase()
+      if(type.startsWith('shipping'))__cAddr.shipping=ta.value
+      else __cAddr.business=ta.value
+    })
+    document.querySelectorAll('#section-customer .tab').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        document.querySelectorAll('#section-customer .tab').forEach(b=>b.classList.toggle('active',b===btn))
+        document.querySelectorAll('#section-customer .tabpane').forEach(p=>p.classList.toggle('active',p.id==='c-tab-'+btn.dataset.tab))
+      })
+    })
+    filterCustomer()
+  }catch(e){
+    const list=document.getElementById('c-list')
+    if(list)list.textContent='Error: '+(e&&e.message||e)
+  }
+}
 // Purchase Order page logic
 let __poLoaded=false;let __poRows=[];let __poSchema=[];
 let __poArchiveQuery=null;let __poArchiveRows=[];
@@ -975,6 +1081,11 @@ async function initVendorPage(){
   document.querySelectorAll('#section-vendor .tab').forEach(btn=>{
     btn.addEventListener('click',()=>{document.querySelectorAll('#section-vendor .tab').forEach(b=>b.classList.toggle('active',b===btn));document.querySelectorAll('#section-vendor .tabpane').forEach(p=>p.classList.toggle('active',p.id==='vendor-tab-'+btn.dataset.tab))})
   })
+  const stmt=document.getElementById('vendor-statement')
+  if(stmt&&!stmt.dataset.bound){
+    stmt.dataset.bound='1'
+    stmt.addEventListener('click',()=>openStatementOfAccount('vendor',document.getElementById('v-name')?.value||''))
+  }
   if(__vendorLoaded){filterVendors();return}
   try{
     // prefer derived table, fall back to view
