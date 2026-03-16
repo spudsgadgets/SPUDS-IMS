@@ -361,6 +361,22 @@ async function ensurePool(){
   }catch(e){
     const msg=String(e&&e.message||'')
     const code=String(e&&e.code||'')
+    const isConn=code==='ECONNREFUSED'||code==='ETIMEDOUT'||code==='EHOSTUNREACH'||code==='ENOTFOUND'||/ERROR\s+2002|10061|ECONNREFUSED|Can('|’)t connect to (server|MySQL server)/i.test(msg)
+    if(isConn&&__isLocalHost(cfg.host)){
+      await __startDbIfNeeded({host:cfg.host,port:String(cfg.port)})
+      for(let i=0;i<12;i++){
+        try{
+          await global.__pool.query('SELECT 1')
+          return global.__pool
+        }catch(e2){
+          const m2=String(e2&&e2.message||'')
+          const c2=String(e2&&e2.code||'')
+          const conn2=c2==='ECONNREFUSED'||c2==='ETIMEDOUT'||c2==='EHOSTUNREACH'||c2==='ENOTFOUND'||/ERROR\s+2002|10061|ECONNREFUSED|Can('|’)t connect to (server|MySQL server)/i.test(m2)
+          if(!conn2)throw e2
+          await __sleep(350)
+        }
+      }
+    }
     if(code==='ER_BAD_DB_ERROR'||/Unknown database/i.test(msg)){
       const cfg2={...cfg}; delete cfg2.database
       const bootstrap=mysql.createPool(cfg2)
@@ -804,6 +820,12 @@ if(url.pathname==='/api/db/clear'&&req.method==='POST'){
       const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims',waitForConnections:true,connectionLimit:5,queueLimit:0}
       const db=String(cfg.database||'ims')
       if(!/^[a-zA-Z0-9_]+$/.test(db)){bad(res,'invalid database name');return}
+      if(__isLocalHost(cfg.host)){
+        const p=String(parseInt(String(cfg.port||''),10)||'')
+        if(p&&!await __canConnectTcp(cfg.host,p,500)){
+          await __startDbIfNeeded({host:cfg.host,port:p})
+        }
+      }
       const cfg2={...cfg};delete cfg2.database
       const bootstrap=mysql.createPool(cfg2)
       try{
@@ -1524,11 +1546,65 @@ if(url.pathname==='/api/selftest'&&req.method==='GET'){
 }
 notFound(res)
 }
+function __getStaticCache(){
+  if(!global.__staticCache)global.__staticCache={map:new Map(),bytes:0}
+  return global.__staticCache
+}
+function __staticCacheGet(cache,key){
+  const v=cache.map.get(key)
+  if(!v)return null
+  cache.map.delete(key)
+  cache.map.set(key,v)
+  return v
+}
+function __staticCacheSet(cache,key,val){
+  const prev=cache.map.get(key)
+  if(prev){
+    cache.bytes-=Number(prev.bytes||0)
+    cache.map.delete(key)
+  }
+  cache.map.set(key,val)
+  cache.bytes+=Number(val.bytes||0)
+  const maxEntries=96
+  const maxBytes=12*1024*1024
+  while(cache.map.size>maxEntries||cache.bytes>maxBytes){
+    const k=cache.map.keys().next().value
+    const v=cache.map.get(k)
+    cache.bytes-=Number(v&&v.bytes||0)
+    cache.map.delete(k)
+  }
+}
+function __staticContentType(ext){
+  const map={
+    '.html':'text/html',
+    '.js':'text/javascript',
+    '.css':'text/css',
+    '.json':'application/json',
+    '.svg':'image/svg+xml',
+    '.png':'image/png',
+    '.jpg':'image/jpeg',
+    '.jpeg':'image/jpeg',
+    '.gif':'image/gif',
+    '.webp':'image/webp',
+    '.ico':'image/x-icon',
+    '.woff':'font/woff',
+    '.woff2':'font/woff2',
+    '.ttf':'font/ttf'
+  }
+  return map[ext]||'application/octet-stream'
+}
+function __staticCacheControl(ext){
+  if(ext==='.html')return 'no-store'
+  if(ext==='.png'||ext==='.jpg'||ext==='.jpeg'||ext==='.gif'||ext==='.webp'||ext==='.ico'||ext==='.woff'||ext==='.woff2'||ext==='.ttf')return 'public, max-age=604800, immutable'
+  if(ext==='.js'||ext==='.css'||ext==='.json'||ext==='.svg')return 'public, max-age=3600, must-revalidate'
+  return 'public, max-age=3600, must-revalidate'
+}
 async function serveStatic(req,res){
   const method=String(req&&req.method||'GET').toUpperCase()
   if(method!=='GET'&&method!=='HEAD'){res.writeHead(405,{'Content-Type':'text/plain'});res.end('Method Not Allowed');return}
   const u=new URL(req.url,'http://localhost')
-  let p=decodeURIComponent(u.pathname)
+  let p='/'
+  try{p=decodeURIComponent(u.pathname)}catch{notFound(res);return}
   if(p==='/')p='/login.html'
   else if(p.toLowerCase()==='/login')p='/login.html'
   const pLower=p.toLowerCase()
@@ -1549,26 +1625,66 @@ async function serveStatic(req,res){
       st=await stat(index)
       if(index!==PUBLIC && !index.startsWith(PUBLIC+path.sep)){notFound(res);return}
       p='/'+path.relative(PUBLIC,index).replace(/\\/g,'/')
-      st=await stat(index)
-      const data=await readFile(index)
-      const ext=path.extname(index).toLowerCase()
-      const map={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'}
-      const headers={'Content-Type':map[ext]||'application/octet-stream'}
+      const fp2=index
+      const ext=path.extname(fp2).toLowerCase()
+      const headers={'Content-Type':__staticContentType(ext)}
       const etag='W/"'+String(st.size)+'-'+String(Math.floor(st.mtimeMs))+'"'
       headers['ETag']=etag
       headers['Last-Modified']=st.mtime.toUTCString()
-      if(ext==='.html')headers['Cache-Control']='no-store'
-      else if(ext==='.png')headers['Cache-Control']='public, max-age=604800, immutable'
-      else headers['Cache-Control']='public, max-age=0, must-revalidate'
+      headers['Cache-Control']=__staticCacheControl(ext)
       const inm=String(req&&req.headers&&req.headers['if-none-match']||'')
       if(inm&&inm===etag){res.writeHead(304,headers);res.end();return}
       const ae=String(req&&req.headers&&req.headers['accept-encoding']||'')
-      const canGzip=(/gzip/i.test(ae))&&(ext==='.html'||ext==='.js'||ext==='.css'||ext==='.json'||ext==='.svg')
+      const wantsBr=/\bbr\b/i.test(ae)
+      const wantsGzip=/\bgzip\b/i.test(ae)
+      const compressible=(ext==='.html'||ext==='.js'||ext==='.css'||ext==='.json'||ext==='.svg')
+      const brotliOk=compressible&&typeof zlib.brotliCompressSync==='function'
+      const cache=__getStaticCache()
+      const cacheKey=fp2+'|'+etag
+      const cached=__staticCacheGet(cache,cacheKey)
+      const maxFile=512*1024
+      const maxCompress=512*1024
+      const minCompress=1024
+      const streamThreshold=512*1024
+      if(cached){
+        let body=cached.raw
+        if(wantsBr&&cached.br){body=cached.br;headers['Content-Encoding']='br';__vary(headers,'Accept-Encoding')}
+        else if(wantsGzip&&cached.gz){body=cached.gz;headers['Content-Encoding']='gzip';__vary(headers,'Accept-Encoding')}
+        headers['Content-Length']=String(body?body.length:0)
+        res.writeHead(200,headers)
+        if(method==='HEAD'){res.end();return}
+        res.end(body)
+        return
+      }
+      if(st.size>streamThreshold&&!wantsBr&&!wantsGzip){
+        headers['Content-Length']=String(st.size||0)
+        res.writeHead(200,headers)
+        if(method==='HEAD'){res.end();return}
+        const rs=fs.createReadStream(fp2)
+        rs.on('error',()=>{try{res.destroy()}catch{}})
+        rs.pipe(res)
+        return
+      }
+      const data=await readFile(fp2)
       let body=data
-      if(canGzip&&body&&body.length>1024){
-        body=zlib.gzipSync(body)
-        headers['Content-Encoding']='gzip'
-        __vary(headers,'Accept-Encoding')
+      let gz=null
+      let br=null
+      if(compressible&&data&&data.length>minCompress&&data.length<=maxCompress){
+        try{gz=zlib.gzipSync(data)}catch{}
+        if(brotliOk){
+          try{br=zlib.brotliCompressSync(data,{params:{[zlib.constants.BROTLI_PARAM_QUALITY]:4}})}catch{}
+        }
+      }
+      if(wantsBr&&br){body=br;headers['Content-Encoding']='br';__vary(headers,'Accept-Encoding')}
+      else if(wantsGzip&&gz){body=gz;headers['Content-Encoding']='gzip';__vary(headers,'Accept-Encoding')}
+      if(data&&data.length<=maxFile){
+        const entry={
+          raw:data,
+          gz,
+          br
+        }
+        entry.bytes=(entry.raw?entry.raw.length:0)+(entry.gz?entry.gz.length:0)+(entry.br?entry.br.length:0)
+        __staticCacheSet(cache,cacheKey,entry)
       }
       headers['Content-Length']=String(body?body.length:0)
       res.writeHead(200,headers)
@@ -1576,25 +1692,65 @@ async function serveStatic(req,res){
       res.end(body)
       return
     }
-    const data=await readFile(fp)
     const ext=path.extname(fp).toLowerCase()
-    const map={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'}
-    const headers={'Content-Type':map[ext]||'application/octet-stream'}
+    const headers={'Content-Type':__staticContentType(ext)}
     const etag='W/"'+String(st.size)+'-'+String(Math.floor(st.mtimeMs))+'"'
     headers['ETag']=etag
     headers['Last-Modified']=st.mtime.toUTCString()
-    if(ext==='.html')headers['Cache-Control']='no-store'
-    else if(ext==='.png')headers['Cache-Control']='public, max-age=604800, immutable'
-    else headers['Cache-Control']='public, max-age=0, must-revalidate'
+    headers['Cache-Control']=__staticCacheControl(ext)
     const inm=String(req&&req.headers&&req.headers['if-none-match']||'')
     if(inm&&inm===etag){res.writeHead(304,headers);res.end();return}
     const ae=String(req&&req.headers&&req.headers['accept-encoding']||'')
-    const canGzip=(/gzip/i.test(ae))&&(ext==='.html'||ext==='.js'||ext==='.css'||ext==='.json'||ext==='.svg')
+    const wantsBr=/\bbr\b/i.test(ae)
+    const wantsGzip=/\bgzip\b/i.test(ae)
+    const compressible=(ext==='.html'||ext==='.js'||ext==='.css'||ext==='.json'||ext==='.svg')
+    const brotliOk=compressible&&typeof zlib.brotliCompressSync==='function'
+    const cache=__getStaticCache()
+    const cacheKey=fp+'|'+etag
+    const cached=__staticCacheGet(cache,cacheKey)
+    const maxFile=512*1024
+    const maxCompress=512*1024
+    const minCompress=1024
+    const streamThreshold=512*1024
+    if(cached){
+      let body=cached.raw
+      if(wantsBr&&cached.br){body=cached.br;headers['Content-Encoding']='br';__vary(headers,'Accept-Encoding')}
+      else if(wantsGzip&&cached.gz){body=cached.gz;headers['Content-Encoding']='gzip';__vary(headers,'Accept-Encoding')}
+      headers['Content-Length']=String(body?body.length:0)
+      res.writeHead(200,headers)
+      if(method==='HEAD'){res.end();return}
+      res.end(body)
+      return
+    }
+    if(st.size>streamThreshold&&!wantsBr&&!wantsGzip){
+      headers['Content-Length']=String(st.size||0)
+      res.writeHead(200,headers)
+      if(method==='HEAD'){res.end();return}
+      const rs=fs.createReadStream(fp)
+      rs.on('error',()=>{try{res.destroy()}catch{}})
+      rs.pipe(res)
+      return
+    }
+    const data=await readFile(fp)
     let body=data
-    if(canGzip&&body&&body.length>1024){
-      body=zlib.gzipSync(body)
-      headers['Content-Encoding']='gzip'
-      __vary(headers,'Accept-Encoding')
+    let gz=null
+    let br=null
+    if(compressible&&data&&data.length>minCompress&&data.length<=maxCompress){
+      try{gz=zlib.gzipSync(data)}catch{}
+      if(brotliOk){
+        try{br=zlib.brotliCompressSync(data,{params:{[zlib.constants.BROTLI_PARAM_QUALITY]:4}})}catch{}
+      }
+    }
+    if(wantsBr&&br){body=br;headers['Content-Encoding']='br';__vary(headers,'Accept-Encoding')}
+    else if(wantsGzip&&gz){body=gz;headers['Content-Encoding']='gzip';__vary(headers,'Accept-Encoding')}
+    if(data&&data.length<=maxFile){
+      const entry={
+        raw:data,
+        gz,
+        br
+      }
+      entry.bytes=(entry.raw?entry.raw.length:0)+(entry.gz?entry.gz.length:0)+(entry.br?entry.br.length:0)
+      __staticCacheSet(cache,cacheKey,entry)
     }
     headers['Content-Length']=String(body?body.length:0)
     res.writeHead(200,headers)

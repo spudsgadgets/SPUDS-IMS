@@ -39,8 +39,6 @@ if((-not (Test-Path $mysqldLocal1)) -and (-not (Test-Path $mysqldLocal2))){
     }
   }
 }
-Write-Host "Starting MariaDB on port $DbPort..."
-Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$dbScript`" -Port $DbPort" -WorkingDirectory $root
 function Test-PortReady($h,$p){
   try{
     $client = New-Object System.Net.Sockets.TcpClient
@@ -50,9 +48,15 @@ function Test-PortReady($h,$p){
     $client.Close();return $false
   }catch{return $false}
 }
-for($i=0;$i -lt 50;$i++){
-  if(Test-PortReady "127.0.0.1" ([int]$DbPort)){ break }
-  Start-Sleep -Milliseconds 200
+if(Test-PortReady "127.0.0.1" ([int]$DbPort)){
+  Write-Host "MariaDB already running on port $DbPort."
+}else{
+  Write-Host "Starting MariaDB on port $DbPort..."
+  Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$dbScript`" -Port $DbPort" -WorkingDirectory $root
+  for($i=0;$i -lt 50;$i++){
+    if(Test-PortReady "127.0.0.1" ([int]$DbPort)){ break }
+    Start-Sleep -Milliseconds 200
+  }
 }
 function Ensure-FirewallRule($name,$port){
   try{

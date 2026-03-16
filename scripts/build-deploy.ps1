@@ -17,13 +17,14 @@ $releaseName = "SPUDS-IMS-Deploy-$($pkgVer).zip"
 $releaseDirPath = Join-Path $root $ReleasesDir
 if(-not (Test-Path $releaseDirPath)){ New-Item -ItemType Directory -Path $releaseDirPath | Out-Null }
 # copy files into bundle
-$exclude = @('node_modules','dist','.git','coverage',$ReleasesDir,'local-mariadb','backups','logs','.github')
-$excludeFiles = @('.gitignore','SPUDS-IMS-Deploy.zip')
+$exclude = @('node_modules','dist','.git','coverage',$ReleasesDir,'local-mariadb','backups','logs','.github','.tools','.vscode')
+$excludeFiles = @('.gitignore',(Split-Path -Leaf $ZipName))
 $items = Get-ChildItem -Force -LiteralPath $root
 foreach($item in $items){
   if($exclude -contains $item.Name){ continue }
   if($item.Name -like "deploy-bundle*"){ continue }
   if((-not $item.PSIsContainer) -and ($excludeFiles -contains $item.Name)){ continue }
+  if((-not $item.PSIsContainer) -and ($item.Extension -in @('.zip','.7z','.rar'))){ continue }
   $dest = Join-Path $bundle $item.Name
   if($item.PSIsContainer){
     Copy-Item -Recurse -Force -LiteralPath $item.FullName -Destination $dest
@@ -196,18 +197,17 @@ function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
 }
 $srcNodeMods = Join-Path $root "node_modules"
 $dstNodeMods = Join-Path $bundle "node_modules"
-$didDeps = $false
-try{
-  if(Test-Path $srcNodeMods){
-    Copy-Item -Recurse -Force -LiteralPath $srcNodeMods -Destination $dstNodeMods
-    Write-Host "Copied node_modules from root into deploy bundle."
-    $didDeps = $true
-  }
-}catch{
-  Write-Warning ("Failed to copy node_modules: {0}" -f $_)
-}
+$didDeps = TryNpmInstall $bundle
 if(-not $didDeps){
-  if(TryNpmInstall $bundle){ $didDeps = $true }
+  try{
+    if(Test-Path $srcNodeMods){
+      Copy-Item -Recurse -Force -LiteralPath $srcNodeMods -Destination $dstNodeMods
+      Write-Host "Copied node_modules from root into deploy bundle."
+      $didDeps = $true
+    }
+  }catch{
+    Write-Warning ("Failed to copy node_modules: {0}" -f $_)
+  }
 }
 if(-not $didDeps){
   Write-Warning "Dependencies were not installed/copied into the deploy bundle (node_modules missing). Runtime may fail."

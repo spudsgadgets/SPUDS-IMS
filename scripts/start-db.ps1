@@ -1,5 +1,18 @@
 param([string]$Port = "3307")
 $ErrorActionPreference = "Stop"
+function Test-PortReady($h,$p){
+  try{
+    $client = New-Object System.Net.Sockets.TcpClient
+    $async = $client.BeginConnect($h,$p,$null,$null)
+    $done = $async.AsyncWaitHandle.WaitOne(200)
+    if($done -and $client.Connected){$client.Close();return $true}
+    $client.Close();return $false
+  }catch{return $false}
+}
+if(Test-PortReady "127.0.0.1" ([int]$Port)){
+  Write-Host "MariaDB already running on port $Port."
+  exit 0
+}
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $root
 $mariaRoot = Join-Path $root "mariadb"
