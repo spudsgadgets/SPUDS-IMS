@@ -10,6 +10,15 @@ function Out([string]$msg){
   Write-Host $msg
   if($Log){ try{ Add-Content -Path $Log -Value $msg }catch{} }
 }
+function Tail-File([string]$path,[int]$lines=80){
+  try{
+    if(Test-Path $path){
+      Out ("--- {0} (last {1} lines) ---" -f $path,$lines)
+      $tail = Get-Content -LiteralPath $path -Tail $lines -ErrorAction SilentlyContinue
+      foreach($l in ($tail|ForEach-Object { $_ })){ Out $l }
+    }
+  }catch{}
+}
 function Ensure-FirewallRule($name,$port){
   try{
     $exists = (netsh advfirewall firewall show rule name="$name" | Select-String -Pattern "Rule Name") -ne $null
@@ -121,6 +130,11 @@ if($pids -and $pids.Count -gt 0){
   $dep = Get-DepStatus $root
   if(-not $dep.has){ Out "Dependencies missing: node_modules not found." }
   elseif($dep.missing -and $dep.missing.Count -gt 0){ Out ("Missing dependencies: {0}" -f ([string]::Join(", ",$dep.missing))) }
+  try{
+    $logDir = Join-Path $root "logs"
+    Tail-File (Join-Path $logDir "node-err.log") 80
+    Tail-File (Join-Path $logDir "node-out.log") 40
+  }catch{}
 }
 $healthy = Test-Health $ApiPort
 $healthText = if($healthy){"OK"}else{"FAIL"}
@@ -142,12 +156,21 @@ if($Fix){
   Ensure-FirewallRule -name ("SPUDS IMS API {0}" -f $ApiPort) -port $ApiPort
 }
 if($Start){
-  if(-not (Ensure-Node $root)){ Out "Could not ensure Node.js runtime; setup may require internet or manual node.exe copy."; }
-  $startAll = Join-Path $root "scripts\start-all.ps1"
-  & $startAll -DbPort "3307" -ApiPort $ApiPort -AllowDB -OpenBrowser $false
-  Start-Sleep -Seconds 3
-  $healthy2 = Test-Health $ApiPort
-  $healthText2 = if($healthy2){"OK"}else{"FAIL"}
-  Out ("Post-start health: {0}" -f $healthText2)
-  if(-not $healthy2){ Out ("Health detail: {0}" -f (Get-HealthDetail $ApiPort)) }
+  try{
+    if(-not (Ensure-Node $root)){ Out "Could not ensure Node.js runtime; setup may require internet or manual node.exe copy."; }
+    $startAll = Join-Path $root "scripts\start-all.ps1"
+    & $startAll -DbPort "3307" -ApiPort $ApiPort -AllowDB -OpenBrowser $false
+    Start-Sleep -Seconds 3
+    $healthy2 = Test-Health $ApiPort
+    $healthText2 = if($healthy2){"OK"}else{"FAIL"}
+    Out ("Post-start health: {0}" -f $healthText2)
+    if(-not $healthy2){ Out ("Health detail: {0}" -f (Get-HealthDetail $ApiPort)) }
+  }catch{
+    Out ("Start failed: {0}" -f $_.Exception.Message)
+    try{
+      $logDir = Join-Path $root "logs"
+      Tail-File (Join-Path $logDir "node-err.log") 120
+      Tail-File (Join-Path $logDir "node-out.log") 80
+    }catch{}
+  }
 }

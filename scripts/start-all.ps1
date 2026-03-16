@@ -2,12 +2,12 @@ param(
   [string]$DbPort = "3307",
   [string]$ApiPort = "3200",
   [switch]$AllowDB,
-  [object]$OpenBrowser = $true,
+  [object]$OpenBrowser = $false,
   [string]$AdminPassword = "admin123",
   [switch]$Debug
 )
 $ErrorActionPreference = "Stop"
-$shouldOpenBrowser = $true
+$shouldOpenBrowser = $false
 function ConvertTo-Bool([object]$v,[bool]$default=$true){
   if($null -eq $v){ return $default }
   if($v -is [bool]){ return $v }
@@ -19,7 +19,7 @@ function ConvertTo-Bool([object]$v,[bool]$default=$true){
   if($t -in @('0','false','f','no','n','off','$false')){ return $false }
   return $default
 }
-try{ $shouldOpenBrowser = ConvertTo-Bool $OpenBrowser $true }catch{ $shouldOpenBrowser = $true }
+try{ $shouldOpenBrowser = ConvertTo-Bool $OpenBrowser $false }catch{ $shouldOpenBrowser = $false }
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $root
 $logDir = Join-Path $root "logs"
@@ -53,10 +53,13 @@ if(Test-PortReady "127.0.0.1" ([int]$DbPort)){
 }else{
   Write-Host "Starting MariaDB on port $DbPort..."
   Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$dbScript`" -Port $DbPort" -WorkingDirectory $root
-  for($i=0;$i -lt 50;$i++){
+  for($i=0;$i -lt 150;$i++){
     if(Test-PortReady "127.0.0.1" ([int]$DbPort)){ break }
     Start-Sleep -Milliseconds 200
   }
+}
+if(-not (Test-PortReady "127.0.0.1" ([int]$DbPort))){
+  Write-Warning ("MariaDB did not start on 127.0.0.1:{0}. The app will still start, but database-backed features will fail until MariaDB is running." -f $DbPort)
 }
 function Ensure-FirewallRule($name,$port){
   try{

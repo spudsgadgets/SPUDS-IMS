@@ -37,15 +37,28 @@ if($overrideProvided){
   $dataDir = $overrideDataDir
   $myIni = ($(if($rootIsReparse){ $localMyIni }else{ $rootMyIni }))
 }else{
-  if(Test-Path (Join-Path $rootDataDir "mysql")){
-    $dataDir = $rootDataDir
-    $myIni = $rootMyIni
-  }elseif($rootIsReparse){
+  $rootHasData = Test-Path (Join-Path $rootDataDir "mysql")
+  $localHasData = Test-Path (Join-Path $localDataDir "mysql")
+  if($rootHasData -and -not $localHasData){
+    try{
+      if(-not (Test-Path $localLocalRoot)){ New-Item -ItemType Directory -Path $localLocalRoot -Force | Out-Null }
+      try{
+        Move-Item -Force -LiteralPath $rootDataDir -Destination $localLocalRoot -ErrorAction Stop
+      }catch{
+        Copy-Item -Recurse -Force -LiteralPath $rootDataDir -Destination $localLocalRoot
+      }
+      try{ Remove-Item -Force -LiteralPath $localMyIni -ErrorAction SilentlyContinue }catch{}
+    }catch{}
+  }
+  if(Test-Path (Join-Path $localDataDir "mysql")){
     $dataDir = $localDataDir
     $myIni = $localMyIni
-  }else{
+  }elseif($rootHasData){
     $dataDir = $rootDataDir
     $myIni = $rootMyIni
+  }else{
+    $dataDir = $localDataDir
+    $myIni = $localMyIni
   }
 }
 if(-not $overrideProvided){
@@ -119,8 +132,11 @@ if($needsInit){
   }
 }
 $tmpDir = [System.IO.Path]::GetTempPath()
+$logDir = Join-Path $root "logs"
+try{ if(-not (Test-Path $logDir)){ New-Item -ItemType Directory -Path $logDir -Force | Out-Null } }catch{}
+$errLog = Join-Path $logDir ("mariadb-{0}.err.log" -f $Port)
 Write-Host "Starting MariaDB from $mysqld with $myIni on port $Port"
-& $mysqld "--defaults-file=$myIni" "--basedir=$mariaRoot" "--datadir=$dataDir" "--port=$Port" "--bind-address=127.0.0.1" "--tmpdir=$tmpDir" "--console"
+& $mysqld "--defaults-file=$myIni" "--basedir=$mariaRoot" "--datadir=$dataDir" "--port=$Port" "--bind-address=127.0.0.1" "--tmpdir=$tmpDir" "--log-error=$errLog" "--console"
 $code = $LASTEXITCODE
 if($code -and $code -ne 0){
   Write-Host ("MariaDB process exited with code {0}" -f $code)

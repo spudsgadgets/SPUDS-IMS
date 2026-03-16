@@ -41,4 +41,4 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
 Ensure-Node $root | Out-Null
 $startAll = Join-Path $root "scripts\start-all.ps1"
-& $startAll -DbPort $DbPort -ApiPort $ApiPort -AllowDB -OpenBrowser $true
+& $startAll -DbPort $DbPort -ApiPort $ApiPort -AllowDB -OpenBrowser $false

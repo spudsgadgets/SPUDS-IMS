@@ -84,7 +84,7 @@ async function __startDbIfNeeded({host,port}){
   global.__dbStartInFlight=(async()=>{
     const cp=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',dbScript,'-Port',p],{cwd:__dirname,detached:true,windowsHide:true,stdio:'ignore'})
     cp.unref()
-    const ok=await __waitForTcp(host,p,12000)
+    const ok=await __waitForTcp(host,p,60000)
     if(!ok)throw new Error("MariaDB didn't start on "+host+":"+p)
   })()
   try{
@@ -618,8 +618,20 @@ cors(req,res);
 const url=new URL(req.url,'http://localhost');
 if(req.method==='OPTIONS'){res.writeHead(204);res.end();return}
 if(url.pathname==='/api/health'){
-  try{const pool=await ensurePool();const [r]=await pool.query('SELECT 1 AS ok');ok(res,{ok:true,db:Boolean(r&&r.length)})}
-  catch(e){ok(res,{ok:false,error:String(e&&e.message||e)})}
+  try{
+    if(!mysql){ok(res,{ok:true,db:false,error:'mysql2 not installed'});return}
+    const host=process.env.MYSQL_HOST||'127.0.0.1'
+    const port=parseInt(process.env.MYSQL_PORT||'3307',10)
+    if(!(await __canConnectTcp(host,port,200))){
+      if(__isLocalHost(host)){__startDbIfNeeded({host,port:String(port)}).catch(()=>{})}
+      ok(res,{ok:true,db:false});return
+    }
+    const pool=await ensurePool()
+    const [r]=await pool.query('SELECT 1 AS ok')
+    ok(res,{ok:true,db:Boolean(r&&r.length)})
+  }catch(e){
+    ok(res,{ok:true,db:false,error:String(e&&e.message||e)})
+  }
   return
 }
 if(url.pathname==='/api/auth/login'&&req.method==='POST'){
@@ -1085,6 +1097,8 @@ if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.me
     const dbs=[String(cfg.database||'ims'),String(archiveDb||'ims_archive')].filter(Boolean)
     const seenDb=new Set();const uniqDbs=[]
     for(const d of dbs){const k=d.toLowerCase();if(!seenDb.has(k)){seenDb.add(k);uniqDbs.push(d)}}
+    const ts=new Date();const pad=n=>String(n).padStart(2,'0');const base=`spuds-ims-backup-${ts.getFullYear()}-${pad(ts.getMonth()+1)}-${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}`;const fnSql=base+'.sql';const fnZip=base+'.zip'
+    if(req.method==='HEAD'){res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="'+fnZip+'"'});res.end();return}
     try{
       if(archiveDb&&isValidName(archiveDb)){
         const pool=await ensurePool()
@@ -1106,8 +1120,6 @@ if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.me
         })
       })
     }
-    const ts=new Date();const pad=n=>String(n).padStart(2,'0');const base=`spuds-ims-backup-${ts.getFullYear()}-${pad(ts.getMonth()+1)}-${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}`;const fnSql=base+'.sql';const fnZip=base+'.zip'
-    if(req.method==='HEAD'){res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="'+fnZip+'"'});res.end();return}
     let dumpOut=null;let lastErr=null
     const preferNode=(process.env.SPUDS_BACKUP_MODE||'node').toLowerCase()==='node';
     if(preferNode){
@@ -1759,4 +1771,4 @@ async function serveStatic(req,res){
   }catch{notFound(res)}
 }
 const server=http.createServer(async (req,res)=>{try{const u=String(req&&req.url||'');if(u.startsWith('/api/')||u.startsWith('/statement/')){await handleAPI(req,res)}else{await serveStatic(req,res)}}catch(e){json(res,500,{error:String(e&&e.message||e)})}})
-server.listen(PORT,'::',()=>{})
+server.listen({port:PORT,host:'::',ipv6Only:false},()=>{})

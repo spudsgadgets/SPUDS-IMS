@@ -229,6 +229,21 @@ try{
     try{ Remove-Item -Force $tmpZip }catch{}; try{ Remove-Item -Recurse -Force $tmpExtract }catch{}
   }
 }catch{}
+try{
+  $mysqld1 = Join-Path $bundle "mariadb\bin\mysqld.exe"
+  $mysqld2 = Join-Path $bundle "mariadb\bin\mariadbd.exe"
+  if((-not (Test-Path $mysqld1)) -and (-not (Test-Path $mysqld2))){
+    $setupMaria = Join-Path $bundle "scripts\setup-portable-mariadb.ps1"
+    if(Test-Path $setupMaria){
+      Write-Host "Bundling portable MariaDB into deploy ZIP..."
+      & $setupMaria -Port 3307 -NoStart
+    }else{
+      Write-Warning "setup-portable-mariadb.ps1 not found in bundle; portable MariaDB will not be included."
+    }
+  }
+}catch{
+  Write-Warning ("Portable MariaDB bundling failed: {0}" -f $_)
+}
 # ensure version is stamped into UI
 try{
   $idx = Join-Path $bundle "public\index.html"
@@ -268,6 +283,12 @@ if(-not (Test-Path $zipLatest)){
   }catch{}
 }
 Copy-Item -Force $zipLatest $zipRelease
+if(-not (Test-Path -LiteralPath $zipRelease)){
+  $alt = Join-Path $root $releaseName
+  if(Test-Path -LiteralPath $alt){
+    try{ Move-Item -Force -LiteralPath $alt -Destination $zipRelease }catch{}
+  }
+}
 Remove-ItemRetry $bundle
 Write-Host "Deploy ZIP created:"
 Write-Host " - Latest:  $zipLatest"
