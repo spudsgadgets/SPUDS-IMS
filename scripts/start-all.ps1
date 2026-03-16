@@ -127,12 +127,63 @@ function Find-MariaDbClient([string]$rootPath){
   }
   return $null
 }
+function Get-LocalSpudsDir(){
+  try{
+    $p = Join-Path $env:LOCALAPPDATA "SPUDS-IMS"
+    if(-not (Test-Path $p)){ New-Item -ItemType Directory -Path $p -Force | Out-Null }
+    return $p
+  }catch{
+    return $null
+  }
+}
+function ConvertFrom-SecureStringPlain([securestring]$sec){
+  if(-not $sec){ return "" }
+  $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+  try{ return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+}
+function Get-SavedDbPassword(){
+  try{
+    $dir = Get-LocalSpudsDir
+    if(-not $dir){ return "" }
+    $path = Join-Path $dir "db_password.dpapi"
+    if(-not (Test-Path $path)){ return "" }
+    $enc = Get-Content -Raw -LiteralPath $path -ErrorAction Stop
+    if([string]::IsNullOrWhiteSpace($enc)){ return "" }
+    $sec = ConvertTo-SecureString $enc
+    return (ConvertFrom-SecureStringPlain $sec)
+  }catch{
+    return ""
+  }
+}
+function Save-DbPassword([securestring]$sec){
+  try{
+    $dir = Get-LocalSpudsDir
+    if(-not $dir){ return }
+    $path = Join-Path $dir "db_password.dpapi"
+    $enc = $sec | ConvertFrom-SecureString
+    Set-Content -LiteralPath $path -Value $enc -Encoding ascii -Force
+  }catch{}
+}
+function Get-DbPassword(){
+  $p = [string]$env:IMS_DB_PASSWORD
+  if([string]::IsNullOrWhiteSpace($p)){ $p = [string]$env:MYSQL_PASSWORD }
+  if([string]::IsNullOrWhiteSpace($p)){ $p = Get-SavedDbPassword }
+  if([string]::IsNullOrWhiteSpace($p)){
+    try{
+      $sec = Read-Host "Enter DB password for spuds_admin (saved for this Windows user)" -AsSecureString
+      if($sec){
+        $p = ConvertFrom-SecureStringPlain $sec
+        if(-not [string]::IsNullOrWhiteSpace($p)){ Save-DbPassword $sec }
+      }
+    }catch{}
+  }
+  return [string]$p
+}
 function Ensure-DbUser([string]$rootPath,[string]$dbPort){
   $dbUser = "spuds_admin"
-  $dbPassword = [string]$env:IMS_DB_PASSWORD
-  if([string]::IsNullOrWhiteSpace($dbPassword)){ $dbPassword = [string]$env:MYSQL_PASSWORD }
+  $dbPassword = Get-DbPassword
   if([string]::IsNullOrWhiteSpace($dbPassword)){
-    Write-Warning "DB password not set. Set IMS_DB_PASSWORD (or MYSQL_PASSWORD) to use spuds_admin."
+    Write-Warning "DB password not set. Set IMS_DB_PASSWORD (or MYSQL_PASSWORD)."
     return
   }
   $client = Find-MariaDbClient $rootPath
@@ -151,6 +202,20 @@ GRANT ALL PRIVILEGES ON `SPUDS_IMS_MAIN`.* TO '$dbUser'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON `SPUDS_IMS_MAIN`.* TO '$dbUser'@'localhost';
 GRANT ALL PRIVILEGES ON `SPUDS_IMS_ARCHIVE`.* TO '$dbUser'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON `SPUDS_IMS_ARCHIVE`.* TO '$dbUser'@'localhost';
+GRANT ALL PRIVILEGES ON `ims`.* TO '$dbUser'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON `ims`.* TO '$dbUser'@'localhost';
+GRANT ALL PRIVILEGES ON `ims_archive`.* TO '$dbUser'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON `ims_archive`.* TO '$dbUser'@'localhost';
+CREATE USER IF NOT EXISTS '$dbUser'@'%' IDENTIFIED BY '$dbPassword';
+ALTER USER '$dbUser'@'%' IDENTIFIED BY '$dbPassword';
+GRANT ALL PRIVILEGES ON `SPUDS_IMS_MAIN`.* TO '$dbUser'@'%';
+GRANT ALL PRIVILEGES ON `SPUDS_IMS_ARCHIVE`.* TO '$dbUser'@'%';
+GRANT ALL PRIVILEGES ON `spuds_ims_main`.* TO '$dbUser'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON `spuds_ims_main`.* TO '$dbUser'@'localhost';
+GRANT ALL PRIVILEGES ON `spuds_ims_main`.* TO '$dbUser'@'%';
+GRANT ALL PRIVILEGES ON `spuds_ims_archive`.* TO '$dbUser'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON `spuds_ims_archive`.* TO '$dbUser'@'localhost';
+GRANT ALL PRIVILEGES ON `spuds_ims_archive`.* TO '$dbUser'@'%';
 FLUSH PRIVILEGES;
 "@
   try{
@@ -160,6 +225,7 @@ FLUSH PRIVILEGES;
   }
   $env:MYSQL_USER = $dbUser
   $env:MYSQL_PASSWORD = $dbPassword
+  $env:IMS_DB_PASSWORD = $dbPassword
 }
 Ensure-DbUser $root $DbPort
 function Stop-RunningNode($rootPath){

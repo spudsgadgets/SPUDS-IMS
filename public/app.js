@@ -825,7 +825,10 @@ async function __restoreDatabaseFile(f){
   try{
     if(restoreStatus)restoreStatus.textContent='Starting database…'
     try{
-      await fetch(api('/api/db/start'),{method:'POST'})
+      const ctrl=new AbortController()
+      const t=setTimeout(()=>{try{ctrl.abort()}catch{}},3000)
+      await fetch(api('/api/db/start'),{method:'POST',signal:ctrl.signal}).catch(()=>{})
+      try{clearTimeout(t)}catch{}
     }catch{}
     const mb=(Number(f.size||0)/1024/1024)
     if(restoreStatus)restoreStatus.textContent='Uploading… '+(mb?mb.toFixed(1)+' MB':'')

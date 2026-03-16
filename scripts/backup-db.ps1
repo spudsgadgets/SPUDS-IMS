@@ -14,6 +14,29 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
 if(-not $OutDir){ $OutDir = (Join-Path $root "backups") }
 if(-not (Test-Path $OutDir)){ New-Item -ItemType Directory -Path $OutDir | Out-Null }
+function ConvertFrom-SecureStringPlain([securestring]$sec){
+  if(-not $sec){ return "" }
+  $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+  try{ return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+}
+function Get-SavedDbPassword(){
+  try{
+    $dir = Join-Path $env:LOCALAPPDATA "SPUDS-IMS"
+    $path = Join-Path $dir "db_password.dpapi"
+    if(-not (Test-Path $path)){ return "" }
+    $enc = Get-Content -Raw -LiteralPath $path -ErrorAction Stop
+    if([string]::IsNullOrWhiteSpace($enc)){ return "" }
+    $sec = ConvertTo-SecureString $enc
+    return (ConvertFrom-SecureStringPlain $sec)
+  }catch{
+    return ""
+  }
+}
+if($Password -eq ""){
+  $Password = [string]$env:IMS_DB_PASSWORD
+  if([string]::IsNullOrWhiteSpace($Password)){ $Password = [string]$env:MYSQL_PASSWORD }
+  if([string]::IsNullOrWhiteSpace($Password)){ $Password = Get-SavedDbPassword }
+}
 
 $dumpCandidates = @()
 $dumpCandidates += (Join-Path $root "mariadb\bin\mariadb-dump.exe")

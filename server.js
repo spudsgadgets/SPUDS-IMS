@@ -356,6 +356,22 @@ const __DEFAULT_ARCHIVE_DB='SPUDS_IMS_ARCHIVE'
 const __LEGACY_DB='ims'
 const __LEGACY_ARCHIVE_DB='ims_archive'
 function __rxEsc(s){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function __remapSqlDbNames(sql){
+  let s=String(sql||'')
+  const pairs=[[__LEGACY_DB,__DEFAULT_DB],[__LEGACY_ARCHIVE_DB,__DEFAULT_ARCHIVE_DB],['spuds_ims_main',__DEFAULT_DB],['spuds_ims_archive',__DEFAULT_ARCHIVE_DB]]
+  for(const [from,to] of pairs){
+    const fe=__rxEsc(from)
+    s=s.replace(new RegExp('\\bCREATE\\s+DATABASE\\s+`'+fe+'`','ig'),'CREATE DATABASE `'+to+'`')
+    s=s.replace(new RegExp('\\bCREATE\\s+DATABASE\\s+IF\\s+NOT\\s+EXISTS\\s+`'+fe+'`','ig'),'CREATE DATABASE IF NOT EXISTS `'+to+'`')
+    s=s.replace(new RegExp('\\bUSE\\s+`'+fe+'`','ig'),'USE `'+to+'`')
+    s=s.replace(new RegExp('`'+fe+'`\\.' ,'g'),'`'+to+'`.')
+    s=s.replace(new RegExp('\\bCREATE\\s+DATABASE\\s+'+fe+'\\b','ig'),'CREATE DATABASE `'+to+'`')
+    s=s.replace(new RegExp('\\bCREATE\\s+DATABASE\\s+IF\\s+NOT\\s+EXISTS\\s+'+fe+'\\b','ig'),'CREATE DATABASE IF NOT EXISTS `'+to+'`')
+    s=s.replace(new RegExp('\\bUSE\\s+'+fe+'\\b','ig'),'USE `'+to+'`')
+    s=s.replace(new RegExp('\\b'+fe+'\\.', 'g'),'`'+to+'`.')
+  }
+  return s
+}
 async function __maybeRenameLegacyDatabase(conn,{fromDb,toDb}){
   if(!mysql)throw new Error('mysql2 not installed')
   if(!isValidName(fromDb)||!isValidName(toDb))return false
@@ -404,6 +420,25 @@ async function ensurePool(){
   if(!global.__pool)global.__pool=mysql.createPool(cfg)
   try{
     await global.__pool.query('SELECT 1')
+    if(!global.__legacyChecked){
+      global.__legacyChecked=true
+      try{
+        const conn=await global.__pool.getConnection()
+        try{
+          const [toTables]=await conn.query('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=? LIMIT 1',[__DEFAULT_DB])
+          const [fromTables]=await conn.query('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=? LIMIT 1',[__LEGACY_DB])
+          if((!toTables||!toTables.length)&&(fromTables&&fromTables.length)){
+            await __maybeRenameLegacyDatabase(conn,{fromDb:__LEGACY_DB,toDb:__DEFAULT_DB})
+          }
+          const arch=__archiveDbName()
+          const [archTo]=await conn.query('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=? LIMIT 1',[arch])
+          const [archFrom]=await conn.query('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=? LIMIT 1',[__LEGACY_ARCHIVE_DB])
+          if((!archTo||!archTo.length)&&(archFrom&&archFrom.length)){
+            await __maybeRenameLegacyDatabase(conn,{fromDb:__LEGACY_ARCHIVE_DB,toDb:arch})
+          }
+        }finally{conn.release()}
+      }catch{}
+    }
     return global.__pool
   }catch(e){
     const msg=String(e&&e.message||'')
@@ -1300,7 +1335,7 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
           throw new Error("Can't connect to MariaDB on "+host+":"+uniqPorts.join(',')+". Start the database (Start-IMS.cmd) and try again.")
         }
       }
-      const baseCfg={host,user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB}
+      let baseCfg={host,user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB}
       const mysqlClient=await ensureMysqlClient({...baseCfg,port:selectedPort})
       const mysqlExe=mysqlClient&&mysqlClient.mysqlExe
       if(!mysqlExe){
@@ -1310,6 +1345,10 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
       const isConnectErr=(msg)=>{
         const s=String(msg||'')
         return /ERROR\s+2002|HY000|10061|ECONNREFUSED|Can('|’)t connect to (server|MySQL server)/i.test(s)
+      }
+      const isAccessDenied=(msg)=>{
+        const s=String(msg||'')
+        return /ERROR\s+1044|Access\s+denied/i.test(s)
       }
       const baseMysqlArgs=(port)=>{
         const args=['--host='+baseCfg.host,'--port='+String(port),'--user='+baseCfg.user,'--protocol=tcp','--connect-timeout=5']
@@ -1352,6 +1391,45 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
         }
         return false
       }
+      const ensureSpudsAdminGrants=async(port)=>{
+        try{
+          const pw=String(process.env.IMS_DB_PASSWORD||process.env.MYSQL_PASSWORD||'')
+          const sql=[
+            "CREATE USER IF NOT EXISTS 'spuds_admin'@'localhost' IDENTIFIED BY '"+pw+"'",
+            "CREATE USER IF NOT EXISTS 'spuds_admin'@'127.0.0.1' IDENTIFIED BY '"+pw+"'",
+            "CREATE USER IF NOT EXISTS 'spuds_admin'@'%' IDENTIFIED BY '"+pw+"'",
+            "ALTER USER 'spuds_admin'@'localhost' IDENTIFIED BY '"+pw+"'",
+            "ALTER USER 'spuds_admin'@'127.0.0.1' IDENTIFIED BY '"+pw+"'",
+            "ALTER USER 'spuds_admin'@'%' IDENTIFIED BY '"+pw+"'",
+            "GRANT CREATE, DROP ON *.* TO 'spuds_admin'@'localhost'",
+            "GRANT CREATE, DROP ON *.* TO 'spuds_admin'@'127.0.0.1'",
+            "GRANT CREATE, DROP ON *.* TO 'spuds_admin'@'%'",
+            "GRANT ALL PRIVILEGES ON `SPUDS_IMS_MAIN`.* TO 'spuds_admin'@'localhost'",
+            "GRANT ALL PRIVILEGES ON `SPUDS_IMS_MAIN`.* TO 'spuds_admin'@'127.0.0.1'",
+            "GRANT ALL PRIVILEGES ON `SPUDS_IMS_MAIN`.* TO 'spuds_admin'@'%'",
+            "GRANT ALL PRIVILEGES ON `SPUDS_IMS_ARCHIVE`.* TO 'spuds_admin'@'localhost'",
+            "GRANT ALL PRIVILEGES ON `SPUDS_IMS_ARCHIVE`.* TO 'spuds_admin'@'127.0.0.1'",
+            "GRANT ALL PRIVILEGES ON `SPUDS_IMS_ARCHIVE`.* TO 'spuds_admin'@'%'",
+            "GRANT ALL PRIVILEGES ON `spuds_ims_main`.* TO 'spuds_admin'@'localhost'",
+            "GRANT ALL PRIVILEGES ON `spuds_ims_main`.* TO 'spuds_admin'@'127.0.0.1'",
+            "GRANT ALL PRIVILEGES ON `spuds_ims_main`.* TO 'spuds_admin'@'%'",
+            "GRANT ALL PRIVILEGES ON `spuds_ims_archive`.* TO 'spuds_admin'@'localhost'",
+            "GRANT ALL PRIVILEGES ON `spuds_ims_archive`.* TO 'spuds_admin'@'127.0.0.1'",
+            "GRANT ALL PRIVILEGES ON `spuds_ims_archive`.* TO 'spuds_admin'@'%'",
+            "GRANT ALL PRIVILEGES ON `ims`.* TO 'spuds_admin'@'localhost'",
+            "GRANT ALL PRIVILEGES ON `ims`.* TO 'spuds_admin'@'127.0.0.1'",
+            "GRANT ALL PRIVILEGES ON `ims`.* TO 'spuds_admin'@'%'",
+            "GRANT ALL PRIVILEGES ON `ims_archive`.* TO 'spuds_admin'@'localhost'",
+            "GRANT ALL PRIVILEGES ON `ims_archive`.* TO 'spuds_admin'@'127.0.0.1'",
+            "GRANT ALL PRIVILEGES ON `ims_archive`.* TO 'spuds_admin'@'%'",
+            "FLUSH PRIVILEGES"
+          ].join("; ")
+          const args=['--host='+baseCfg.host,'--port='+String(port),'--user=root','--protocol=tcp','--connect-timeout=5']
+          const rootPw=String(process.env.MYSQL_ROOT_PASSWORD||'')
+          if(rootPw){args.unshift('--password='+rootPw)}
+          await runQuick([...args,'--execute='+sql],15000)
+        }catch{}
+      }
       const runWithFile=async(filePath,totalBytes,port)=>{
         return await new Promise((resolve,reject)=>{
           const args=baseMysqlArgs(port)
@@ -1379,6 +1457,7 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
       const restoreSqlFile=async(filePath,totalBytes)=>{
         const candidates=[selectedPort,...uniqPorts.filter(p=>p!==selectedPort)]
         let lastErr=null
+        let triedRootFallback=false
         for(const p of candidates){
           setStep('connecting','Connecting to database on '+host+':'+p+'…')
           try{
@@ -1391,6 +1470,33 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
             lastErr=e
             if(isConnectErr(e&&e.message||e)){
               continue
+            }
+            if(isAccessDenied(e&&e.message||e)){
+              await ensureSpudsAdminGrants(p)
+              try{
+                const ready=await waitForMysqlReady(p,15000)
+                if(ready){
+                  setStep('restoring','Restoring SQL (after grants)…')
+                  await runWithFile(filePath,totalBytes,p)
+                  return
+                }
+              }catch{}
+            }
+            if(!triedRootFallback && isAccessDenied(e&&e.message||e)){
+              triedRootFallback=true
+              baseCfg.user='root'
+              baseCfg.password=process.env.MYSQL_ROOT_PASSWORD||''
+              try{
+                const ready=await waitForMysqlReady(p,15000)
+                if(!ready){continue}
+                setStep('restoring','Restoring SQL as root…')
+                await runWithFile(filePath,totalBytes,p)
+                return
+              }catch(e2){
+                lastErr=e2
+                if(isConnectErr(e2&&e2.message||e2)){continue}
+                throw e2
+              }
             }
             throw e
           }
@@ -1422,12 +1528,21 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
         if(!sqlFile){try{fs.unlinkSync(zipPath)}catch{};throw new Error('no .sql in zip')}
         const srcWin=path.join(dest,sqlFile)
         const st=await stat(srcWin)
-        try{await restoreSqlFile(srcWin,st&&st.size);return}
+        try{
+          const raw=await fs.promises.readFile(srcWin,'utf8')
+          const remapped=__remapSqlDbNames(raw)
+          const out=path.join(dest,'remapped.sql')
+          await writeFile(out,remapped)
+          const st2=await stat(out)
+          await restoreSqlFile(out,st2&&st2.size)
+          return
+        }
         finally{try{fs.unlinkSync(zipPath)}catch{};try{fs.unlinkSync(srcWin)}catch{}}
       }else{
         const tmp=path.join(os.tmpdir(),`spuds-restore-${Date.now()}.sql`)
         setStep('preparing','Preparing SQL…')
-        await writeFile(tmp,buf)
+        const remapped=__remapSqlDbNames(Buffer.from(buf).toString('utf8'))
+        await writeFile(tmp,remapped)
         const st=await stat(tmp)
         try{await restoreSqlFile(tmp,st&&st.size);return}
         finally{try{fs.unlinkSync(tmp)}catch{}}

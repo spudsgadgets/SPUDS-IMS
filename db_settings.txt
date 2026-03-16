@@ -1,4 +1,4 @@
-Database names:
+reDatabase names:
 - Main: SPUDS_IMS_MAIN
 - Archive: SPUDS_IMS_ARCHIVE
 
@@ -6,7 +6,10 @@ Database user:
 - Username: spuds_admin
 
 Database password:
-- Not stored in this repository. Set it via environment variable:
+- Not stored in this repository in plaintext.
+- On first start, Start-IMS prompts for it and stores it encrypted (Windows user DPAPI) at:
+  %LOCALAPPDATA%\SPUDS-IMS\db_password.dpapi
+- You can also set it via environment variable:
   - IMS_DB_PASSWORD
   - (or MYSQL_PASSWORD)
 
