@@ -10,6 +10,23 @@ const brandLogo=document.getElementById('brand-logo')
 const verEl=document.getElementById('login-ver')
 function applyLogo(src){if(!brandLogo)return;if(src){brandLogo.src=src;brandLogo.style.display='inline-block'}else{brandLogo.removeAttribute('src');brandLogo.style.display='none'}}
 let savedLogo=null;try{savedLogo=localStorage.getItem('logoSrc')}catch{};applyLogo(savedLogo||'')
+function __hintForFetchFailure(){
+  const target=api('/api/health')
+  const fileHint=(location.protocol==='file:'?' (Open http://localhost:3200/ instead of the file)':'')
+  return 'Can’t reach server at '+target+'. Start the server (Start-IMS.cmd) and try again.'+fileHint
+}
+async function __quickHealthCheck(){
+  try{
+    const ctrl=new AbortController()
+    const t=setTimeout(()=>{try{ctrl.abort()}catch{}},2500)
+    try{
+      const r=await fetch(api('/api/health'),{signal:ctrl.signal,credentials:'include'})
+      return Boolean(r&&r.ok)
+    }finally{clearTimeout(t)}
+  }catch{
+    return false
+  }
+}
 async function ensureVersion(){try{if(!verEl)return;const cur=(verEl.textContent||'').trim();if(cur)return;const m=/\bIMS\s+v([0-9][^\s]*)/i.exec(document.title||'');if(m&&m[1]){verEl.textContent='v'+m[1];return}const r=await fetch(api('/api/version'));const j=await r.json().catch(()=>({}));const ver=j&&j.version;if(ver){verEl.textContent='v'+ver;if(!/\bIMS\s+v/i.test(document.title||''))document.title='IMS v'+ver}}catch{}}
 ensureVersion()
 async function doLogin(){
@@ -24,7 +41,10 @@ async function doLogin(){
     try{if(j&&j.token){localStorage.setItem('ims_token',String(j.token))}}catch{}
     if(statusEl)statusEl.textContent='Logged in'
     location.href='./index.html'
-  }catch(e){if(statusEl)statusEl.textContent='Login error: '+(e&&e.message||e)}
+  }catch(e){
+    const ok=await __quickHealthCheck()
+    if(statusEl)statusEl.textContent=ok?('Login error: '+(e&&e.message||e)):__hintForFetchFailure()
+  }
 }
 window.doLogin=doLogin
 if(btn)btn.addEventListener('click',doLogin)

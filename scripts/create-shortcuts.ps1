@@ -20,8 +20,24 @@ $startTarget = Join-Path $root "Start-IMS.cmd"
 $stopTarget = Join-Path $root "Stop-IMS.cmd"
 $diagTarget = Join-Path $root "Diagnose-IMS.cmd"
  $nodeTarget = Join-Path $root "Setup-Portable-Node.cmd"
-NewLink (Join-Path $desktop ($StartName + ".lnk")) $startTarget $root
-NewLink (Join-Path $desktop ($StopName + ".lnk")) $stopTarget $root
-NewLink (Join-Path $desktop ($DiagName + ".lnk")) $diagTarget $root
-NewLink (Join-Path $desktop ($NodeName + ".lnk")) $nodeTarget $root
-Write-Host "Shortcuts created on Desktop"
+$created = 0
+foreach($item in @(
+  @{ Name=$StartName; Target=$startTarget },
+  @{ Name=$StopName; Target=$stopTarget },
+  @{ Name=$DiagName; Target=$diagTarget },
+  @{ Name=$NodeName; Target=$nodeTarget }
+)){
+  try{
+    $lnkPath = Join-Path $desktop ($item.Name + ".lnk")
+    NewLink $lnkPath $item.Target $root
+    $created++
+  }catch{
+    try{ Write-Warning ("Could not create shortcut '{0}' on Desktop: {1}" -f $item.Name,$_) }catch{}
+  }
+}
+if($created -gt 0){
+  Write-Host "Shortcuts created on Desktop"
+}else{
+  Write-Warning "No shortcuts were created (Desktop may not be writable)."
+}
+exit 0

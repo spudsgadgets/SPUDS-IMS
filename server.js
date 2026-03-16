@@ -60,7 +60,7 @@ function __sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 async function __waitForTcp(host,port,timeoutMs=12000){
   const start=Date.now()
   while(Date.now()-start<timeoutMs){
-    if(await __canConnectTcp(host,port,600))return true
+    if(await __canConnectTcp(host,port,2000))return true
     await __sleep(200)
   }
   return false
@@ -73,10 +73,10 @@ async function __startDbIfNeeded({host,port}){
   const p=String(parseInt(String(port||''),10)||'')
   if(!p)throw new Error('invalid db port')
   if(!__isLocalHost(host))throw new Error('db host is not local: '+String(host||''))
-  if(await __canConnectTcp(host,p,600))return {ok:true,started:false,port:p}
+  if(await __canConnectTcp(host,p,2000))return {ok:true,started:false,port:p}
   if(global.__dbStartInFlight){
     await global.__dbStartInFlight
-    const ok=await __canConnectTcp(host,p,600)
+    const ok=await __canConnectTcp(host,p,2000)
     return {ok,started:false,port:p}
   }
   const dbScript=path.join(__dirname,'scripts','start-db.ps1')
@@ -775,12 +775,11 @@ if(url.pathname==='/api/db/start'&&req.method==='POST'){
   const uniqPorts=[...new Set(ports.filter(Boolean))]
   try{
     for(const p of uniqPorts){
-      if(await __canConnectTcp(host,p,600)){ok(res,{ok:true,started:false,host,port:p});return}
+      if(await __canConnectTcp(host,p,2000)){ok(res,{ok:true,started:false,host,port:p});return}
     }
-    let started=null
-    try{started=await __startDbIfNeeded({host,port:desiredPort})}catch{}
+    const started=await __startDbIfNeeded({host,port:desiredPort})
     for(const p of uniqPorts){
-      if(await __canConnectTcp(host,p,600)){ok(res,{ok:true,started:Boolean(started&&started.started),host,port:p});return}
+      if(await __canConnectTcp(host,p,5000)){ok(res,{ok:true,started:Boolean(started&&started.started),host,port:p});return}
     }
     bad(res,"Can't connect to MariaDB on "+host+":"+uniqPorts.join(',')+". Run Start-IMS.cmd and try again.")
   }catch(e){
@@ -1199,13 +1198,13 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
       let selectedPort=desiredPort
       let reachable=false
       for(const p of uniqPorts){
-        if(await __canConnectTcp(host,p,600)){selectedPort=p;reachable=true;break}
+        if(await __canConnectTcp(host,p,2000)){selectedPort=p;reachable=true;break}
       }
       if(!reachable){
         setStep('starting-db','Starting database…')
-        try{await __startDbIfNeeded({host,port:desiredPort})}catch{}
+        await __startDbIfNeeded({host,port:desiredPort})
         for(const p of uniqPorts){
-          if(await __canConnectTcp(host,p,900)){selectedPort=p;reachable=true;break}
+          if(await __canConnectTcp(host,p,5000)){selectedPort=p;reachable=true;break}
         }
         if(!reachable){
           throw new Error("Can't connect to MariaDB on "+host+":"+uniqPorts.join(',')+". Start the database (Start-IMS.cmd) and try again.")
@@ -1222,9 +1221,50 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
         const s=String(msg||'')
         return /ERROR\s+2002|HY000|10061|ECONNREFUSED|Can('|’)t connect to (server|MySQL server)/i.test(s)
       }
+      const baseMysqlArgs=(port)=>{
+        const args=['--host='+baseCfg.host,'--port='+String(port),'--user='+baseCfg.user,'--protocol=tcp','--connect-timeout=5']
+        if(baseCfg.password){args.unshift('--password='+baseCfg.password)}
+        return args
+      }
+      const runQuick=async(args,timeoutMs=8000)=>{
+        return await new Promise((resolve,reject)=>{
+          const cp=spawn(mysqlExe,args,{windowsHide:true})
+          let stdout='';let stderr=''
+          let done=false
+          const finish=(err,obj)=>{
+            if(done)return
+            done=true
+            try{cp.kill()}catch{}
+            if(err)reject(err)
+            else resolve(obj||{stdout,stderr})
+          }
+          const timer=setTimeout(()=>finish(new Error('timeout')),timeoutMs)
+          cp.stdout.on('data',d=>{stdout+=String(d||'')})
+          cp.stderr.on('data',d=>{stderr+=String(d||'')})
+          cp.on('error',e=>{clearTimeout(timer);finish(e)})
+          cp.on('close',code=>{
+            clearTimeout(timer)
+            if(code!==0){finish(new Error(stderr||stdout||('exit '+code)))}else{finish(null,{stdout,stderr})}
+          })
+        })
+      }
+      const waitForMysqlReady=async(port,timeoutMs=15000)=>{
+        const start=Date.now()
+        while(Date.now()-start<timeoutMs){
+          try{
+            await runQuick([...baseMysqlArgs(port),'--execute=SELECT 1'],8000)
+            return true
+          }catch(e){
+            const msg=String(e&&e.message||e)
+            if(isConnectErr(msg)){await __sleep(300);continue}
+            throw e
+          }
+        }
+        return false
+      }
       const runWithFile=async(filePath,totalBytes,port)=>{
         return await new Promise((resolve,reject)=>{
-          const args=['--host='+baseCfg.host,'--port='+String(port),'--user='+baseCfg.user,'--database='+baseCfg.database];if(baseCfg.password){args.unshift('--password='+baseCfg.password)}
+          const args=baseMysqlArgs(port)
           const cp=spawn(mysqlExe,args,{windowsHide:true})
           if(job)job.child=cp
           try{cp.stdin.on('error',()=>{})}catch{}
@@ -1252,6 +1292,8 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
         for(const p of candidates){
           setStep('connecting','Connecting to database on '+host+':'+p+'…')
           try{
+            const ready=await waitForMysqlReady(p,15000)
+            if(!ready){lastErr=new Error('timeout');continue}
             setStep('restoring','Restoring SQL…')
             await runWithFile(filePath,totalBytes,p)
             return
@@ -1561,4 +1603,4 @@ async function serveStatic(req,res){
   }catch{notFound(res)}
 }
 const server=http.createServer(async (req,res)=>{try{const u=String(req&&req.url||'');if(u.startsWith('/api/')||u.startsWith('/statement/')){await handleAPI(req,res)}else{await serveStatic(req,res)}}catch(e){json(res,500,{error:String(e&&e.message||e)})}})
-server.listen(PORT,'0.0.0.0',()=>{})
+server.listen(PORT,'::',()=>{})

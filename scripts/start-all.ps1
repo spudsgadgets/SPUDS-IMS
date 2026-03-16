@@ -169,7 +169,7 @@ try{
     $errLog = Join-Path $logDir "node-err.log"
     try{ Remove-Item -Force $outLog,$errLog -ErrorAction SilentlyContinue }catch{}
     $srv = Join-Path $root "server.js"
-    Start-Process -FilePath $nodePathActual -ArgumentList @($srv) -WorkingDirectory $root -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    Start-Process -FilePath $nodePathActual -ArgumentList @('"' + $srv + '"') -WorkingDirectory $root -RedirectStandardOutput $outLog -RedirectStandardError $errLog
   }
 }catch{ Write-Error ("Node start failed: {0}" -f $_); exit 1 }
 try{

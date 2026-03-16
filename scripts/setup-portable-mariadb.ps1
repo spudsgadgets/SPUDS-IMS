@@ -70,6 +70,12 @@ if(-not (Test-Path $mysqldExe)){ $mysqldExe = Join-Path $binDir "mysqld.exe" }
 if(-not (Test-Path $mysqldExe)){ throw "Extract failed: mariadbd.exe/mysqld.exe not found under $binDir." }
 
 $localRoot = Join-Path $root "local-mariadb"
+try{
+  $ri = Get-Item -LiteralPath $root -ErrorAction SilentlyContinue
+  if($ri -and ($ri.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+    $localRoot = Join-Path (Join-Path $env:LOCALAPPDATA "SPUDS-IMS") "local-mariadb"
+  }
+}catch{}
 $myIni = Join-Path $localRoot "my.ini"
 $dataDir = Join-Path $localRoot "data"
 if(-not (Test-Path $localRoot)){ New-Item -ItemType Directory -Path $localRoot | Out-Null }

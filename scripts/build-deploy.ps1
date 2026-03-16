@@ -129,10 +129,25 @@ function Move-FileRetry([string]$src,[string]$dest){
   Copy-Item -Force -LiteralPath $src -Destination $dest
   Remove-FileRetry $src
 }
+function Test-ZipReadable([string]$zipPath){
+  try{
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipPath).Path)
+    try{
+      return [int]$z.Entries.Count -ge 1
+    }finally{
+      $z.Dispose()
+    }
+  }catch{
+    return $false
+  }
+}
 function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
   Add-Type -AssemblyName System.IO.Compression
   Add-Type -AssemblyName System.IO.Compression.FileSystem
-  $tmpZip = ($destZip + ".tmp-" + [guid]::NewGuid().ToString())
+  $destDir = Split-Path -Parent $destZip
+  if($destDir -and -not (Test-Path $destDir)){ New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+  $tmpZip = Join-Path ([System.IO.Path]::GetTempPath()) ((Split-Path -Leaf $destZip) + ".tmp-" + [guid]::NewGuid().ToString() + ".zip")
   Remove-FileRetry $tmpZip
   $zip = $null
   $zip = [System.IO.Compression.ZipFile]::Open($tmpZip,[System.IO.Compression.ZipArchiveMode]::Create)
@@ -172,19 +187,11 @@ function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
   }finally{
     if($zip){ $zip.Dispose() }
   }
+  if(-not (Test-ZipReadable $tmpZip)){ throw ("ZIP validation failed: {0}" -f $tmpZip) }
   Remove-FileRetry $destZip
-  try{
-    $srcDir = Split-Path -Parent $tmpZip
-    $dstDir = Split-Path -Parent $destZip
-    if($srcDir -eq $dstDir){
-      Rename-Item -Force -LiteralPath $tmpZip -NewName (Split-Path -Leaf $destZip) -ErrorAction Stop
-    }else{
-      Move-Item -Force -LiteralPath $tmpZip -Destination $destZip -ErrorAction Stop
-    }
-  }catch{
-    Copy-Item -Force -LiteralPath $tmpZip -Destination $destZip -ErrorAction Stop
-    Remove-FileRetry $tmpZip
-  }
+  Copy-Item -Force -LiteralPath $tmpZip -Destination $destZip -ErrorAction Stop
+  if(-not (Test-ZipReadable $destZip)){ throw ("ZIP validation failed after copy: {0}" -f $destZip) }
+  Remove-FileRetry $tmpZip
   if(-not (Test-Path $destZip)){ throw ("Failed to create ZIP: {0}" -f $destZip) }
 }
 $srcNodeMods = Join-Path $root "node_modules"
