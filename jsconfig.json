@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "checkJs": false,
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "target": "es2022"
+  },
+  "exclude": [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/.tools/**",
+    "**/mariadb/**",
+    "**/local-mariadb/**",
+    "**/deploy-bundle*/**",
+    "**/releases/**",
+    "**/backups/**",
+    "**/logs/**",
+    "**/coverage/**",
+    "**/dist/**"
+  ]
+}

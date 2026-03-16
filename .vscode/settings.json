@@ -1,0 +1,30 @@
+{
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/.tools/**": true,
+    "**/backups/**": true,
+    "**/coverage/**": true,
+    "**/deploy-bundle*/**": true,
+    "**/dist/**": true,
+    "**/local-mariadb/**": true,
+    "**/logs/**": true,
+    "**/mariadb/**": true,
+    "**/node_modules/**": true,
+    "**/releases/**": true
+  },
+  "search.exclude": {
+    "**/.git/**": true,
+    "**/.tools/**": true,
+    "**/backups/**": true,
+    "**/coverage/**": true,
+    "**/deploy-bundle*/**": true,
+    "**/dist/**": true,
+    "**/local-mariadb/**": true,
+    "**/logs/**": true,
+    "**/mariadb/**": true,
+    "**/node_modules/**": true,
+    "**/releases/**": true
+  },
+  "typescript.disableAutomaticTypeAcquisition": true,
+  "typescript.tsserver.maxTsServerMemory": 4096
+}
