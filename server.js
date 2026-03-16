@@ -351,9 +351,56 @@ async function __buildStatement({req,res,url,partyType}){
     json(res,500,{error:String(e&&e.message||e)})
   }
 }
+const __DEFAULT_DB='SPUDS_IMS_MAIN'
+const __DEFAULT_ARCHIVE_DB='SPUDS_IMS_ARCHIVE'
+const __LEGACY_DB='ims'
+const __LEGACY_ARCHIVE_DB='ims_archive'
+function __rxEsc(s){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+async function __maybeRenameLegacyDatabase(conn,{fromDb,toDb}){
+  if(!mysql)throw new Error('mysql2 not installed')
+  if(!isValidName(fromDb)||!isValidName(toDb))return false
+  const [toRows]=await conn.query('SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?',[toDb])
+  if(toRows&&toRows.length){
+    const [toTables]=await conn.query('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=? LIMIT 1',[toDb])
+    if(toTables&&toTables.length)return false
+  }
+  const [fromRows]=await conn.query('SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?',[fromDb])
+  if(!fromRows||!fromRows.length)return false
+  await conn.query('CREATE DATABASE IF NOT EXISTS `'+toDb+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+  const [tables]=await conn.query('SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=?',[fromDb])
+  const baseTables=[]
+  const views=[]
+  for(const r of tables||[]){
+    const name=String(r&&r.TABLE_NAME||'').trim()
+    if(!name)continue
+    const type=String(r&&r.TABLE_TYPE||'').toUpperCase()
+    if(type==='VIEW')views.push(name)
+    else baseTables.push(name)
+  }
+  for(const t of baseTables){
+    await conn.query('RENAME TABLE `'+fromDb+'`.`'+t+'` TO `'+toDb+'`.`'+t+'`')
+  }
+  const fromEsc=__rxEsc(fromDb)
+  const toEsc=toDb
+  for(const v of views){
+    try{
+      const [rows]=await conn.query('SHOW CREATE VIEW `'+fromDb+'`.`'+v+'`')
+      const row=rows&&rows[0]||null
+      const create=row&&(row['Create View']||row['Create View'.toString()]||row['Create Table']||row['Create Table'.toString()])
+      if(!create)continue
+      let sql=String(create)
+      sql=sql.replace(new RegExp('VIEW\\s+`'+fromEsc+'`\\.`([^`]+)`\\s+AS','i'),'VIEW `'+toEsc+'`.`$1` AS')
+      sql=sql.replace(/VIEW\s+`([^`]+)`\s+AS/i,'VIEW `'+toEsc+'`.`$1` AS')
+      sql=sql.replace(new RegExp('`'+fromEsc+'`\\.', 'g'),'`'+toEsc+'`.')
+      await conn.query(sql)
+    }catch{}
+  }
+  try{await conn.query('DROP DATABASE `'+fromDb+'`')}catch{}
+  return true
+}
 async function ensurePool(){
   if(!mysql)throw new Error('mysql2 not installed')
-  const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims',waitForConnections:true,connectionLimit:10,queueLimit:0}
+  const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB,waitForConnections:true,connectionLimit:10,queueLimit:0}
   if(!global.__pool)global.__pool=mysql.createPool(cfg)
   try{
     await global.__pool.query('SELECT 1')
@@ -381,6 +428,15 @@ async function ensurePool(){
       const cfg2={...cfg}; delete cfg2.database
       const bootstrap=mysql.createPool(cfg2)
       try{
+        try{
+          if(String(cfg.database)===__DEFAULT_DB){
+            await __maybeRenameLegacyDatabase(bootstrap,{fromDb:__LEGACY_DB,toDb:__DEFAULT_DB})
+          }
+          const arch=__archiveDbName()
+          if(String(arch)===__DEFAULT_ARCHIVE_DB){
+            await __maybeRenameLegacyDatabase(bootstrap,{fromDb:__LEGACY_ARCHIVE_DB,toDb:__DEFAULT_ARCHIVE_DB})
+          }
+        }catch{}
         await bootstrap.query('CREATE DATABASE IF NOT EXISTS `'+(cfg.database)+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
       }finally{
         await bootstrap.end()
@@ -421,7 +477,7 @@ async function normalizeCollations(database){
   }catch{}
 }
 function __archiveDbName(){
-  return String(process.env.IMS_ARCHIVE_DATABASE||process.env.MYSQL_ARCHIVE_DATABASE||'ims_archive')
+  return String(process.env.IMS_ARCHIVE_DATABASE||process.env.MYSQL_ARCHIVE_DATABASE||__DEFAULT_ARCHIVE_DB)
 }
 async function __ensureArchiveTableLike(pool,sourceDb,archiveDb,table){
   const [rows]=await pool.query('SHOW CREATE TABLE `'+sourceDb+'`.`'+table+'`')
@@ -777,7 +833,7 @@ if(url.pathname==='/api/inventory/tracking/summary'&&req.method==='GET'){
 }
 if(url.pathname==='/api/normalize-collations'&&req.method==='POST'){
   try{
-    const db=process.env.MYSQL_DATABASE||'ims';
+    const db=process.env.MYSQL_DATABASE||__DEFAULT_DB;
     const pool=await ensurePool();
     let changed=[];let failed=[];
     try{await pool.query('ALTER DATABASE `'+db+'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')}catch{}
@@ -829,8 +885,8 @@ if(url.pathname==='/api/db/clear'&&req.method==='POST'){
       if(!adminPass){bad(res,'admin password not configured (set IMS_ADMIN_PASSWORD or IMS_PASSWORD)');return}
       if(password!==adminPass){unauthorized(res,'invalid admin password');return}
       if(!mysql)throw new Error('mysql2 not installed')
-      const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims',waitForConnections:true,connectionLimit:5,queueLimit:0}
-      const db=String(cfg.database||'ims')
+      const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB,waitForConnections:true,connectionLimit:5,queueLimit:0}
+      const db=String(cfg.database||__DEFAULT_DB)
       if(!/^[a-zA-Z0-9_]+$/.test(db)){bad(res,'invalid database name');return}
       if(__isLocalHost(cfg.host)){
         const p=String(parseInt(String(cfg.port||''),10)||'')
@@ -919,7 +975,7 @@ if(url.pathname==='/api/archive/move'&&req.method==='POST'){
       if(!adminPass){bad(res,'admin password not configured (set IMS_ADMIN_PASSWORD or IMS_PASSWORD)');return}
       if(password!==adminPass){unauthorized(res,'invalid admin password');return}
       if(!Number.isFinite(year)||year<1970||year>2100){bad(res,'invalid year');return}
-      const sourceDb=String(process.env.MYSQL_DATABASE||'ims')
+      const sourceDb=String(process.env.MYSQL_DATABASE||__DEFAULT_DB)
       const archiveDb=__archiveDbName()
       const cutoff=`${Math.floor(year)}-01-01 00:00:00`
       const pool=await ensurePool()
@@ -953,7 +1009,7 @@ if(url.pathname==='/api/archive/rebalance'&&req.method==='POST'){
       if(!adminPass){bad(res,'admin password not configured (set IMS_ADMIN_PASSWORD or IMS_PASSWORD)');return}
       if(password!==adminPass){unauthorized(res,'invalid admin password');return}
       if(!Number.isFinite(year)||year<1970||year>2100){bad(res,'invalid year');return}
-      const sourceDb=String(process.env.MYSQL_DATABASE||'ims')
+      const sourceDb=String(process.env.MYSQL_DATABASE||__DEFAULT_DB)
       const archiveDb=__archiveDbName()
       const cutoff=`${Math.floor(year)}-01-01 00:00:00`
       const pool=await ensurePool()
@@ -984,7 +1040,7 @@ if(url.pathname==='/api/archive/orders'&&req.method==='GET'){
   const isSales=type==='sales'||type==='so'||type==='sales_order'
   if(!isPurchase&&!isSales){bad(res,'invalid type');return}
   try{
-    const sourceDb=String(process.env.MYSQL_DATABASE||'ims')
+    const sourceDb=String(process.env.MYSQL_DATABASE||__DEFAULT_DB)
     const archiveDb=__archiveDbName()
     const pool=await ensurePool()
     try{await __ensureArchiveSetup(pool,sourceDb,archiveDb)}catch{}
@@ -1092,9 +1148,9 @@ if(url.pathname==='/api/inventory/extended'&&req.method==='PUT'){
 const p=url.pathname.replace(/\/+$/,'')
 if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.method==='HEAD')){
   try{
-    const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
+    const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:String(parseInt(process.env.MYSQL_PORT||'3307',10)),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB}
     const archiveDb=__archiveDbName()
-    const dbs=[String(cfg.database||'ims'),String(archiveDb||'ims_archive')].filter(Boolean)
+    const dbs=[String(cfg.database||__DEFAULT_DB),String(archiveDb||__DEFAULT_ARCHIVE_DB)].filter(Boolean)
     const seenDb=new Set();const uniqDbs=[]
     for(const d of dbs){const k=d.toLowerCase();if(!seenDb.has(k)){seenDb.add(k);uniqDbs.push(d)}}
     const ts=new Date();const pad=n=>String(n).padStart(2,'0');const base=`spuds-ims-backup-${ts.getFullYear()}-${pad(ts.getMonth()+1)}-${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}`;const fnSql=base+'.sql';const fnZip=base+'.zip'
@@ -1244,7 +1300,7 @@ if(url.pathname==='/api/restore'&&req.method==='POST'){
           throw new Error("Can't connect to MariaDB on "+host+":"+uniqPorts.join(',')+". Start the database (Start-IMS.cmd) and try again.")
         }
       }
-      const baseCfg={host,user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||'ims'}
+      const baseCfg={host,user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB}
       const mysqlClient=await ensureMysqlClient({...baseCfg,port:selectedPort})
       const mysqlExe=mysqlClient&&mysqlClient.mysqlExe
       if(!mysqlExe){

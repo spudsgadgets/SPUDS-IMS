@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory=$true)][string]$Path,
-  [string]$Database = "ims",
-  [string]$ArchiveDatabase = "ims_archive",
+  [string]$Database = "SPUDS_IMS_MAIN",
+  [string]$ArchiveDatabase = "SPUDS_IMS_ARCHIVE",
   [string[]]$Databases = @(),
   [string]$DbHost = "127.0.0.1",
   [int]$DbPort = 3307,
