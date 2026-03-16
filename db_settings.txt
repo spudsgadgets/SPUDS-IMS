@@ -1,0 +1,15 @@
+Database names:
+- Main: SPUDS_IMS_MAIN
+- Archive: SPUDS_IMS_ARCHIVE
+
+Database user:
+- Username: spuds_admin
+
+Database password:
+- Not stored in this repository. Set it via environment variable:
+  - IMS_DB_PASSWORD
+  - (or MYSQL_PASSWORD)
+
+Notes:
+- The app reads MYSQL_HOST/MYSQL_PORT/MYSQL_USER/MYSQL_PASSWORD/MYSQL_DATABASE when provided.
+- When starting via scripts\start-all.ps1, MYSQL_USER is set to spuds_admin.

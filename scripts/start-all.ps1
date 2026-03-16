@@ -109,6 +109,59 @@ function Ensure-AutoBackupTasks($rootPath,[string]$dbPort){
   }
 }
 Ensure-AutoBackupTasks $root $DbPort
+function Find-MariaDbClient([string]$rootPath){
+  $candidates = @()
+  $candidates += (Join-Path $rootPath "mariadb\bin\mariadb.exe")
+  $candidates += (Join-Path $rootPath "mariadb\bin\mysql.exe")
+  $candidates += "mariadb.exe"
+  $candidates += "mysql.exe"
+  foreach($c in $candidates){
+    try{
+      if($c -match "^[a-zA-Z]:\\"){
+        if(Test-Path $c){ return $c }
+      }else{
+        $cmd = Get-Command -Name $c -ErrorAction SilentlyContinue
+        if($cmd){ return $cmd.Source }
+      }
+    }catch{}
+  }
+  return $null
+}
+function Ensure-DbUser([string]$rootPath,[string]$dbPort){
+  $dbUser = "spuds_admin"
+  $dbPassword = [string]$env:IMS_DB_PASSWORD
+  if([string]::IsNullOrWhiteSpace($dbPassword)){ $dbPassword = [string]$env:MYSQL_PASSWORD }
+  if([string]::IsNullOrWhiteSpace($dbPassword)){
+    Write-Warning "DB password not set. Set IMS_DB_PASSWORD (or MYSQL_PASSWORD) to use spuds_admin."
+    return
+  }
+  $client = Find-MariaDbClient $rootPath
+  if(-not $client){
+    Write-Warning "MariaDB client not found; cannot ensure DB user. The app may not connect."
+    return
+  }
+  $sql = @"
+CREATE USER IF NOT EXISTS '$dbUser'@'127.0.0.1' IDENTIFIED BY '$dbPassword';
+CREATE USER IF NOT EXISTS '$dbUser'@'localhost' IDENTIFIED BY '$dbPassword';
+ALTER USER '$dbUser'@'127.0.0.1' IDENTIFIED BY '$dbPassword';
+ALTER USER '$dbUser'@'localhost' IDENTIFIED BY '$dbPassword';
+GRANT CREATE, DROP ON *.* TO '$dbUser'@'127.0.0.1';
+GRANT CREATE, DROP ON *.* TO '$dbUser'@'localhost';
+GRANT ALL PRIVILEGES ON `SPUDS_IMS_MAIN`.* TO '$dbUser'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON `SPUDS_IMS_MAIN`.* TO '$dbUser'@'localhost';
+GRANT ALL PRIVILEGES ON `SPUDS_IMS_ARCHIVE`.* TO '$dbUser'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON `SPUDS_IMS_ARCHIVE`.* TO '$dbUser'@'localhost';
+FLUSH PRIVILEGES;
+"@
+  try{
+    & $client @("--host=127.0.0.1","--port=$dbPort","--user=root","--execute=$sql") | Out-Null
+  }catch{
+    Write-Warning ("Could not ensure DB user (will try to continue): {0}" -f $_)
+  }
+  $env:MYSQL_USER = $dbUser
+  $env:MYSQL_PASSWORD = $dbPassword
+}
+Ensure-DbUser $root $DbPort
 function Stop-RunningNode($rootPath){
   try{
     $esc = [regex]::Escape($rootPath)

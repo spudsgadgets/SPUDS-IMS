@@ -5,7 +5,7 @@ param(
   [string]$OutDir,
   [string]$DbHost = "127.0.0.1",
   [int]$DbPort = 3307,
-  [string]$User = "root",
+  [string]$User = "spuds_admin",
   [string]$Password = "",
   [switch]$Compress
 )
