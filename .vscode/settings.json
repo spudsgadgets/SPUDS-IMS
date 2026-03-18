@@ -26,5 +26,8 @@
     "**/releases/**": true
   },
   "typescript.disableAutomaticTypeAcquisition": true,
-  "typescript.tsserver.maxTsServerMemory": 4096
+  "typescript.tsserver.maxTsServerMemory": 4096,
+  "javascript.suggest.autoImports": false,
+  "typescript.suggest.autoImports": false,
+  "typescript.tsserver.useSeparateSyntaxServer": false
 }

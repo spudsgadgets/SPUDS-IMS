@@ -1,9 +1,10 @@
 {
   "compilerOptions": {
     "checkJs": false,
-    "module": "es2022",
-    "moduleResolution": "bundler",
-    "target": "es2022"
+    "module": "es2020",
+    "moduleResolution": "node",
+    "target": "es2020",
+    "lib": ["ES2020", "DOM"]
   },
   "exclude": [
     "**/node_modules/**",
