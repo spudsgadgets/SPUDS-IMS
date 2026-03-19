@@ -161,6 +161,7 @@ function New-ZipFromFolder([string]$sourceDir,[string]$destZip){
       $rel = $rel -replace '\\','/'
       if([string]::IsNullOrWhiteSpace($rel)){ continue }
       if($rel -like "mariadb/downloads/*"){ continue }
+      if($rel -like "mariadb/data/*"){ continue }
       if($rel -like "mariadb/include/*"){ continue }
       $entry = $zip.CreateEntry($rel,[System.IO.Compression.CompressionLevel]::Optimal)
       $inStream = $null

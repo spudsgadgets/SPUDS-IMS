@@ -16,57 +16,41 @@ if(Test-PortReady "127.0.0.1" ([int]$Port)){
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $root
 $mariaRoot = Join-Path $root "mariadb"
-$rootLocalRoot = Join-Path $root "local-mariadb"
-$rootMyIni = Join-Path $rootLocalRoot "my.ini"
-$rootDataDir = Join-Path $rootLocalRoot "data"
-$localAppRoot = Join-Path $env:LOCALAPPDATA "SPUDS-IMS"
-$localLocalRoot = Join-Path $localAppRoot "local-mariadb"
-$localMyIni = Join-Path $localLocalRoot "my.ini"
-$localDataDir = Join-Path $localLocalRoot "data"
-$rootIsReparse = $false
-try{
-  $ri = Get-Item -LiteralPath $root -ErrorAction SilentlyContinue
-  if($ri -and ($ri.Attributes -band [IO.FileAttributes]::ReparsePoint)){ $rootIsReparse = $true }
-}catch{}
+# Get the root directory for SPUDS-IMS data in the user's Local AppData folder.
+function Get-SpudsAppDataDir {
+  $p = Join-Path $env:LOCALAPPDATA "SPUDS-IMS"
+  if (-not (Test-Path $p)) {
+    New-Item -ItemType Directory -Path $p -Force | Out-Null
+  }
+  return $p
+}
+
+# Enforce using a persistent data directory outside the application folder.
+$spudsAppData = Get-SpudsAppDataDir
+$dataDir = Join-Path $spudsAppData "data"
+$myIni = Join-Path $spudsAppData "my.ini"
+
+# Allow overriding the data directory via environment variable for advanced use cases.
 $overrideDataDir = $env:IMS_MARIADB_DATA_DIR
 if([string]::IsNullOrWhiteSpace($overrideDataDir)){ $overrideDataDir = $env:IMS_DB_DATA_DIR }
-$overrideProvided = -not [string]::IsNullOrWhiteSpace($overrideDataDir)
-$dataDir = $null
-$myIni = $null
-if($overrideProvided){
+if (-not [string]::IsNullOrWhiteSpace($overrideDataDir)) {
+  Write-Host "Using override data directory: $overrideDataDir"
   $dataDir = $overrideDataDir
-  $myIni = ($(if($rootIsReparse){ $localMyIni }else{ $rootMyIni }))
-}else{
-  $rootHasData = Test-Path (Join-Path $rootDataDir "mysql")
-  $localHasData = Test-Path (Join-Path $localDataDir "mysql")
-  if($rootHasData -and -not $localHasData){
-    try{
-      if(-not (Test-Path $localLocalRoot)){ New-Item -ItemType Directory -Path $localLocalRoot -Force | Out-Null }
-      try{
-        Move-Item -Force -LiteralPath $rootDataDir -Destination $localLocalRoot -ErrorAction Stop
-      }catch{
-        Copy-Item -Recurse -Force -LiteralPath $rootDataDir -Destination $localLocalRoot
-      }
-      try{ Remove-Item -Force -LiteralPath $localMyIni -ErrorAction SilentlyContinue }catch{}
-    }catch{}
-  }
-  if(Test-Path (Join-Path $localDataDir "mysql")){
-    $dataDir = $localDataDir
-    $myIni = $localMyIni
-  }elseif($rootHasData){
-    $dataDir = $rootDataDir
-    $myIni = $rootMyIni
-  }else{
-    $dataDir = $localDataDir
-    $myIni = $localMyIni
-  }
+  # When overriding data dir, we assume my.ini might be in a different spot or not used.
+  # For simplicity, we'll place it next to the data dir.
+  $myIni = Join-Path (Split-Path -Parent $dataDir) "my.ini"
 }
-if(-not $overrideProvided){
+$oldDataDir = Join-Path (Join-Path $root "local-mariadb") "data"
+$oldHasData = Test-Path (Join-Path $oldDataDir "mysql")
+$newHasData = Test-Path (Join-Path $dataDir "mysql")
+if($oldHasData -and -not $newHasData){
   try{
-    $di = Get-Item -LiteralPath $dataDir -ErrorAction SilentlyContinue
-    if($di -and ($di.Attributes -band [IO.FileAttributes]::ReparsePoint)){
-      $dataDir = $localDataDir
-      $myIni = $localMyIni
+    $dataParent = Split-Path -Parent $dataDir
+    if($dataParent -and -not (Test-Path $dataParent)){ New-Item -ItemType Directory -Path $dataParent -Force | Out-Null }
+    try{
+      Move-Item -Force -LiteralPath $oldDataDir -Destination $dataParent -ErrorAction Stop
+    }catch{
+      Copy-Item -Recurse -Force -LiteralPath $oldDataDir -Destination $dataParent
     }
   }catch{}
 }
