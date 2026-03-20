@@ -4,7 +4,8 @@ param(
   [switch]$AllowDB,
   [object]$OpenBrowser = $false,
   [string]$AdminPassword = "admin123",
-  [switch]$Debug
+  [switch]$Debug,
+  [switch]$NoDbPrompt
 )
 $ErrorActionPreference = "Stop"
 $shouldOpenBrowser = $false
@@ -168,7 +169,14 @@ function Get-DbPassword(){
   $p = [string]$env:IMS_DB_PASSWORD
   if([string]::IsNullOrWhiteSpace($p)){ $p = [string]$env:MYSQL_PASSWORD }
   if([string]::IsNullOrWhiteSpace($p)){ $p = Get-SavedDbPassword }
-  if([string]::IsNullOrWhiteSpace($p)){
+  $noPromptEnv = [string]$env:IMS_DB_NOPROMPT
+  $envFlag = $false
+  if(-not [string]::IsNullOrWhiteSpace($noPromptEnv)){
+    $t = $noPromptEnv.Trim().ToLowerInvariant()
+    if($t -in @('1','true','yes','on')){ $envFlag = $true }
+  }
+  $disablePrompt = $NoDbPrompt.IsPresent -or $envFlag
+  if([string]::IsNullOrWhiteSpace($p) -and (-not $disablePrompt)){
     try{
       $sec = Read-Host "Enter DB password for spuds_admin (saved for this Windows user)" -AsSecureString
       if($sec){
@@ -228,6 +236,8 @@ FLUSH PRIVILEGES;
   $env:IMS_DB_PASSWORD = $dbPassword
 }
 Ensure-DbUser $root $DbPort
+if([string]::IsNullOrWhiteSpace($env:MYSQL_USER)){ $env:MYSQL_USER = "root" }
+if([string]::IsNullOrWhiteSpace($env:MYSQL_PASSWORD)){ $env:MYSQL_PASSWORD = "" }
 function Stop-RunningNode($rootPath){
   try{
     $esc = [regex]::Escape($rootPath)

@@ -1,7 +1,8 @@
 param(
   [string]$ZipName = "SPUDS-IMS-Deploy.zip",
   [string]$ReleasesDir = "releases",
-  [switch]$Publish
+  [switch]$Publish,
+  [switch]$NoMariaDB
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -58,6 +59,27 @@ if(Test-Path $mariaInclude){
   }
   if(Test-Path $mariaInclude){
     Remove-Item -Recurse -Force -LiteralPath $mariaInclude
+  }
+}
+if($NoMariaDB){
+  try{
+    $mariaDir = Join-Path $bundle "mariadb"
+    if(Test-Path $mariaDir){
+      for($i=0;$i -lt 240;$i++){
+        try{
+          Remove-Item -Recurse -Force -LiteralPath $mariaDir -ErrorAction Stop
+          break
+        }catch{
+          Start-Sleep -Milliseconds 250
+        }
+      }
+      if(Test-Path $mariaDir){
+        Remove-Item -Recurse -Force -LiteralPath $mariaDir -ErrorAction SilentlyContinue
+      }
+      Write-Host "Removed MariaDB folder from bundle (-NoMariaDB)."
+    }
+  }catch{
+    Write-Warning ("Could not remove MariaDB folder: {0}" -f $_)
   }
 }
 function TryNpmInstall($dir){
@@ -231,16 +253,20 @@ try{
   }
 }catch{}
 try{
-  $mysqld1 = Join-Path $bundle "mariadb\bin\mysqld.exe"
-  $mysqld2 = Join-Path $bundle "mariadb\bin\mariadbd.exe"
-  if((-not (Test-Path $mysqld1)) -and (-not (Test-Path $mysqld2))){
-    $setupMaria = Join-Path $bundle "scripts\setup-portable-mariadb.ps1"
-    if(Test-Path $setupMaria){
-      Write-Host "Bundling portable MariaDB into deploy ZIP..."
-      & $setupMaria -Port 3307 -NoStart
-    }else{
-      Write-Warning "setup-portable-mariadb.ps1 not found in bundle; portable MariaDB will not be included."
+  if(-not $NoMariaDB){
+    $mysqld1 = Join-Path $bundle "mariadb\bin\mysqld.exe"
+    $mysqld2 = Join-Path $bundle "mariadb\bin\mariadbd.exe"
+    if((-not (Test-Path $mysqld1)) -and (-not (Test-Path $mysqld2))){
+      $setupMaria = Join-Path $bundle "scripts\setup-portable-mariadb.ps1"
+      if(Test-Path $setupMaria){
+        Write-Host "Bundling portable MariaDB into deploy ZIP..."
+        & $setupMaria -Port 3307 -NoStart
+      }else{
+        Write-Warning "setup-portable-mariadb.ps1 not found in bundle; portable MariaDB will not be included."
+      }
     }
+  }else{
+    Write-Host "Skipping portable MariaDB bundling (-NoMariaDB selected)."
   }
 }catch{
   Write-Warning ("Portable MariaDB bundling failed: {0}" -f $_)
