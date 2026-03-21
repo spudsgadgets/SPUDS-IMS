@@ -53,6 +53,46 @@ function updateStickyTop(){
 }
 window.addEventListener('load',updateStickyTop)
 window.addEventListener('resize',updateStickyTop)
+let __poToolbarTick=0
+function __applyPOToolbarFix(){
+  if(__currentSection!=='purchase-order')return
+  const sec=document.getElementById('section-purchase-order')
+  if(!sec)return
+  const tb=sec.querySelector('.vendor-toolbar')
+  if(!tb)return
+  const cs=getComputedStyle(document.documentElement)
+  let top=parseInt(String(cs.getPropertyValue('--sticky-vendor-top')||'60').trim(),10)
+  if(!Number.isFinite(top)||top<=0)top=60
+  const r=sec.getBoundingClientRect()
+  const left=Math.floor(r.left+window.scrollX)+2
+  const width=Math.max(320,Math.floor(r.width)-4)
+  tb.style.position='fixed'
+  tb.style.top=top+'px'
+  tb.style.left=left+'px'
+  tb.style.width=width+'px'
+  tb.style.zIndex='892'
+  let sp=document.getElementById('po-toolbar-spacer')
+  if(!sp){sp=document.createElement('div');sp.id='po-toolbar-spacer';tb.parentNode.insertBefore(sp,tb.nextSibling)}
+  sp.style.height=(tb.offsetHeight||48)+'px'
+}
+function __clearPOToolbarFix(){
+  const sec=document.getElementById('section-purchase-order')
+  if(!sec)return
+  const tb=sec.querySelector('.vendor-toolbar')
+  const sp=document.getElementById('po-toolbar-spacer')
+  if(tb){tb.style.position='';tb.style.top='';tb.style.left='';tb.style.width='';tb.style.zIndex=''}
+  if(sp)try{sp.remove()}catch{}
+}
+function __updatePOToolbarFix(){
+  if(__currentSection!=='purchase-order'){__clearPOToolbarFix();return}
+  const now=Date.now()
+  if(now-__poToolbarTick<60)return
+  __poToolbarTick=now
+  __applyPOToolbarFix()
+}
+window.addEventListener('load',__updatePOToolbarFix)
+window.addEventListener('resize',__updatePOToolbarFix)
+window.addEventListener('scroll',__updatePOToolbarFix)
 function __formatMoneyInputs(ids){
   const fmt=v=>{const n=Number(String(v||'').replace(/[^0-9.-]/g,''))||0;return n.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   ids.forEach(id=>{const el=document.getElementById(id);if(!el)return;el.value=fmt(el.value)})
@@ -95,7 +135,7 @@ const navButtons=[...document.querySelectorAll('.nav-btn')]
 const sections=[...document.querySelectorAll('.section')]
 let __currentSection='dashboard'
 function __ensurePOFooter(){const receiveBtn=document.getElementById('po-receive-pay');const foot=document.getElementById('sticky-footer');const sect=document.getElementById('section-purchase-order');if(receiveBtn&&foot){try{if(receiveBtn.parentElement!==foot){foot.innerHTML='';foot.appendChild(receiveBtn)}foot.style.display='flex';const fh=foot.offsetHeight||0;try{document.documentElement.style.setProperty('--footer-height',fh+'px')}catch{};if(sect)sect.style.paddingBottom=(fh+12)+'px';if(typeof __poFitToScreen==='function')setTimeout(__poFitToScreen,0)}catch{}}}
-function showSection(id){__currentSection=id;sections.forEach(s=>s.classList.toggle('section-active',s.id===('section-'+id)));navButtons.forEach(b=>b.classList.toggle('active',b.dataset.section===id));try{history.replaceState(null,'','#section-'+id)}catch{};const foot=document.getElementById('sticky-footer');if(foot)foot.style.display=(id==='purchase-order'?'flex':'none');if(id==='inventory')initInventoryPage();if(id==='vendor')initVendorPage();if(id==='purchase-order'){initPurchaseOrderPage();__ensurePOFooter()}if(id==='sales-order')initSalesOrderPage();if(id==='customer')initCustomerPage();const gs=document.getElementById('global-search');if(gs&&gs.value)applyGlobalSearch(gs.value)}
+function showSection(id){__currentSection=id;sections.forEach(s=>s.classList.toggle('section-active',s.id===('section-'+id)));navButtons.forEach(b=>b.classList.toggle('active',b.dataset.section===id));try{history.replaceState(null,'','#section-'+id)}catch{};const foot=document.getElementById('sticky-footer');if(foot)foot.style.display=(id==='purchase-order'?'flex':'none');if(id==='inventory')initInventoryPage();if(id==='vendor')initVendorPage();if(id==='purchase-order'){initPurchaseOrderPage();__ensurePOFooter();setTimeout(__updatePOToolbarFix,0)}else{__clearPOToolbarFix()}if(id==='sales-order')initSalesOrderPage();if(id==='customer')initCustomerPage();const gs=document.getElementById('global-search');if(gs&&gs.value)applyGlobalSearch(gs.value)}
 navButtons.forEach(b=>b.addEventListener('click',(e)=>{e.preventDefault();showSection(b.dataset.section);if(__isOverlayNav())__setNavOpen(false)}))
 // default to dashboard
 showSection('dashboard')
