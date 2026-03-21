@@ -58,6 +58,7 @@ const helpPrintBtn=document.getElementById('help-print')
 const helpManual=document.getElementById('help-manual')
 const logoImg=document.getElementById('brand-logo')
 const logoSelectBtn=document.getElementById('logo-select')
+const openReleaseNotesBtn=document.getElementById('open-release-notes')
 const logoSelectText=document.getElementById('logo-select-text')
 const logoSelectIcon=document.getElementById('logo-select-icon')
 const logoClearBtn=document.getElementById('logo-clear')
@@ -93,6 +94,23 @@ function printUserManual(){
   w.document.open()
   w.document.write(html)
   w.document.close()
+}
+async function openReleaseNotes(){
+  try{
+    let v=null
+    try{
+      const r=await fetch(api('/api/version'))
+      const j=await r.json().catch(()=>({}))
+      v=j&&j.version?('v'+j.version):null
+    }catch{}
+    const url=(API_BASE||'')+'/statement/release-notes'+(v?('?v='+encodeURIComponent(v)):'')
+    const w=window.open(url,'_blank','noopener,noreferrer')
+    if(!w){location.href=url}
+  }catch{
+    const url=(API_BASE||'')+'/statement/release-notes'
+    const w=window.open(url,'_blank','noopener,noreferrer')
+    if(!w){location.href=url}
+  }
 }
 function __escHtml(s){
   return String(s??'').replace(/[&<>"]/g,ch=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[ch]||ch))
@@ -161,6 +179,7 @@ async function openStatementOfAccount(partyType,name){
   }
 }
 if(helpPrintBtn)helpPrintBtn.addEventListener('click',printUserManual)
+if(openReleaseNotesBtn)openReleaseNotesBtn.addEventListener('click',openReleaseNotes)
 if(file){file.addEventListener('change',()=>{if(file.files&&file.files[0]&&!tbl.value){const n=file.files[0].name.replace(/\.csv$/i,'').replace(/[^a-z0-9_]+/ig,'_');tbl.value=n||'inventory'}})}
 function getAuthHeaders(){let h={};try{const t=localStorage.getItem('ims_token');if(t)h['Authorization']='Bearer '+t}catch{};return h}
 const authUserEl=document.getElementById('auth-user')

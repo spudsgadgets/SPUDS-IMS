@@ -775,6 +775,38 @@ if(url.pathname==='/api/version'&&req.method==='GET'){
   }
   return
 }
+if(url.pathname==='/statement/release-notes'&&req.method==='GET'){
+  const s=__getSession(req)
+  if(!s||!s.user){res.writeHead(302,{Location:'/login.html'});res.end();return}
+  try{
+    const vRaw=String(url.searchParams.get('v')||'').trim()
+    let v=vRaw
+    if(!v){
+      const pkgPath=path.join(__dirname,'package.json')
+      const text=await readFile(pkgPath,'utf8')
+      const pkg=JSON.parse(text||'{}')
+      v=String(pkg&&pkg.version||'').trim()
+    }
+    if(!v){res.writeHead(302,{Location:'https://github.com/spudsgadgets/SPUDS-IMS/releases'});res.end();return}
+    if(!/^v/i.test(v))v='v'+v
+    const file=path.join(__dirname,'releases','RELEASE-NOTES-'+v+'.md')
+    let content=null
+    try{content=await readFile(file,'utf8')}catch{}
+    if(!content){
+      res.writeHead(302,{Location:'https://github.com/spudsgadgets/SPUDS-IMS/releases/tag/'+encodeURIComponent(v)})
+      res.end()
+      return
+    }
+    const title='SPUDS IMS — Release Notes '+v
+    const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+title+'</title><link rel="stylesheet" href="/styles.css"><style>body{background:#fff;color:#000}a{color:inherit}#print-root{max-width:900px;margin:24px auto;padding:0 12px;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace}</style></head><body><div id="print-root" class="panel"><div class="section-title">Release Notes '+v+'</div><pre>'+content.replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]||ch))+'</pre></div></body></html>'
+    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'})
+    res.end(html)
+  }catch(e){
+    res.writeHead(302,{Location:'https://github.com/spudsgadgets/SPUDS-IMS/releases'})
+    res.end()
+  }
+  return
+}
 if(url.pathname==='/statement/customer'&&req.method==='GET'){
   const s=__getSession(req)
   if(!s||!s.user){res.writeHead(302,{Location:'/login.html'});res.end();return}
