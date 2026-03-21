@@ -347,10 +347,151 @@
           </div>
         </div>
           </div>
-          <div id="po-tab-advanced" class="tabpane"><div class="status">No advanced fields yet</div></div>
+          <div id="po-tab-advanced" class="tabpane">
+            <div class="vendor-tabs" id="po-adv-tabs">
+              <button class="tab active" data-tab="order">Order</button>
+              <button class="tab" data-tab="receive">Receive</button>
+              <button class="tab" data-tab="payment">Payment</button>
+              <button class="tab" data-tab="return">Return</button>
+              <button class="tab" data-tab="unstock">Unstock</button>
+            </div>
+            <div class="vendor-tabpanes" id="po-adv-panes">
+              <div id="po-adv-tab-order" class="tabpane active">
+                <div class="grid two-col">
+                  <div>
+                    <label>Due Date
+                      <input id="po-adv-due" class="inp" type="date">
+                    </label>
+                    <label>
+                      <span class="lbl">Auto Invoice</span>
+                      <input id="po-adv-auto-inv" type="checkbox" class="inp">
+                    </label>
+                  </div>
+                  <div>
+                    <label>Remarks
+                      <textarea id="po-adv-remarks" class="inp" rows="4"></textarea>
+                    </label>
+                  </div>
+                </div>
+                <div class="section-title" style="margin-top:8px">Order Items</div>
+                <div id="po-adv-order-items" class="table-host"></div>
+              </div>
+              <div id="po-adv-tab-receive" class="tabpane">
+                <div class="grid two-col">
+                  <div>
+                    <label>Receive Date
+                      <input id="po-adv-receive-date" class="inp" type="date">
+                    </label>
+                  </div>
+                  <div>
+                    <div>Total Ordered <span id="po-adv-q-ordered">0</span></div>
+                    <div>Total Received <span id="po-adv-q-received">0</span></div>
+                  </div>
+                </div>
+                <div class="section-title" style="margin-top:8px">Receiving</div>
+                <div id="po-adv-receive-items" class="table-host"></div>
+                <div class="section-title" style="margin-top:8px">Tracking</div>
+                <div class="grid two-col">
+                  <div>
+                    <label>Tracking Type
+                      <select id="po-adv-track-type" class="inp">
+                        <option>None</option>
+                        <option>Serial</option>
+                        <option>Lot</option>
+                      </select>
+                    </label>
+                    <div id="po-adv-serial-panel" style="display:none">
+                      <div class="row" style="gap:6px">
+                        <input id="po-adv-serial-scan" class="inp" placeholder="Scan/Enter serial and press Enter" style="max-width:320px">
+                        <button id="po-adv-serial-add" class="btn btn-small" type="button">Add</button>
+                        <button id="po-adv-serial-del" class="btn btn-small" type="button">Delete Selected</button>
+                      </div>
+                      <div id="po-adv-serial-list" class="table-host" style="margin-top:6px"></div>
+                    </div>
+                    <div id="po-adv-lot-panel" style="display:none">
+                      <div class="row" style="gap:6px">
+                        <button id="po-adv-lot-add" class="btn btn-small" type="button">Add Lot Row</button>
+                        <button id="po-adv-lot-del" class="btn btn-small" type="button">Delete Selected</button>
+                        <button id="po-adv-lot-fefo" class="btn btn-small" type="button">Allocate FEFO</button>
+                      </div>
+                      <div id="po-adv-lot-table" class="table-host" style="margin-top:6px"></div>
+                      <div id="po-adv-fefo" class="status"></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="muted">Tip: For Serial tracking, one scan adds one unit. For Lot tracking, enter Lot, MFG/EXP and Quantity; FEFO suggests oldest-expiring lots first.</div>
+                  </div>
+                </div>
+              </div>
+              <div id="po-adv-tab-payment" class="tabpane">
+                <div class="grid two-col po-bottom">
+                  <div>
+                    <label>Due Date
+                      <input id="po-adv-pay-due" class="inp" type="date">
+                    </label>
+                  </div>
+                  <div>
+                    <div class="section-title">Totals</div>
+                    <label class="money">Sub-Total
+                      <input id="po-adv-subtotal" class="inp" readonly>
+                    </label>
+                    <label class="money">Freight
+                      <input id="po-adv-freight" class="inp" readonly>
+                    </label>
+                    <label class="money">Total
+                      <input id="po-adv-total" class="inp" readonly>
+                    </label>
+                    <label class="money">Paid
+                      <input id="po-adv-paid" class="inp" readonly>
+                    </label>
+                    <label class="money balance">Balance
+                      <input id="po-adv-balance" class="inp" readonly>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div id="po-adv-tab-return" class="tabpane">
+                <div class="grid two-col">
+                  <div>
+                    <label>Return Date
+                      <input id="po-adv-return-date" class="inp" type="date">
+                    </label>
+                  </div>
+                  <div>
+                    <label>Remarks
+                      <textarea id="po-adv-return-remarks" class="inp" rows="4"></textarea>
+                    </label>
+                  </div>
+                </div>
+                <div class="section-title" style="margin-top:8px">Return Items</div>
+                <div id="po-adv-return-items" class="table-host"></div>
+                <div class="grid two-col" style="margin-top:8px">
+                  <div></div>
+                  <div>
+                    <label class="money">Sub-Total
+                      <input id="po-adv-return-subtotal" class="inp" readonly>
+                    </label>
+                    <label class="money">Fee
+                      <input id="po-adv-return-fee" class="inp" value="0.00" readonly>
+                    </label>
+                    <label class="money">Refunded
+                      <input id="po-adv-return-refunded" class="inp" value="0.00" readonly>
+                    </label>
+                    <label class="money balance">Credit
+                      <input id="po-adv-return-credit" class="inp" readonly>
+                    </label>
+                    <div class="row"><button class="btn" disabled>Refund in Full</button></div>
+                  </div>
+                </div>
+              </div>
+              <div id="po-adv-tab-unstock" class="tabpane">
+                <div class="status">Unstock workflow not configured for this build.</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="vendor-tabs tabs-bottom">
-          <button class="tab active" data-tab="purchasing">Purchasing</button>
+          <button class="tab active" data-tab="purchasing">Simple</button>
           <button class="tab" data-tab="advanced">Advanced</button>
         </div>
       </section>

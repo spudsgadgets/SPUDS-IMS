@@ -4,6 +4,7 @@ param(
   [switch]$AllowDB,
   [object]$OpenBrowser = $false,
   [string]$AdminPassword = "admin123",
+  [string]$DbPassword = "",
   [switch]$Debug,
   [switch]$NoDbPrompt
 )
@@ -165,8 +166,17 @@ function Save-DbPassword([securestring]$sec){
     Set-Content -LiteralPath $path -Value $enc -Encoding ascii -Force
   }catch{}
 }
+if(-not [string]::IsNullOrWhiteSpace($DbPassword)){
+  try{
+    $sec = ConvertTo-SecureString $DbPassword -AsPlainText -Force
+    Save-DbPassword $sec
+    $env:IMS_DB_PASSWORD = $DbPassword
+    $env:MYSQL_PASSWORD = $DbPassword
+  }catch{}
+}
 function Get-DbPassword(){
-  $p = [string]$env:IMS_DB_PASSWORD
+  $p = [string]$DbPassword
+  if([string]::IsNullOrWhiteSpace($p)){ $p = [string]$env:IMS_DB_PASSWORD }
   if([string]::IsNullOrWhiteSpace($p)){ $p = [string]$env:MYSQL_PASSWORD }
   if([string]::IsNullOrWhiteSpace($p)){ $p = Get-SavedDbPassword }
   $noPromptEnv = [string]$env:IMS_DB_NOPROMPT
