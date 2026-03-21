@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IMS</title>
-<link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./styles.css?v=teal35">
 </head>
 <body>
 <div id="nav-backdrop" class="nav-backdrop" aria-hidden="true"></div>
@@ -18,22 +18,24 @@
       </div>
     </div>
     <nav class="sidebar-nav">
-      <a class="nav-btn active" data-section="dashboard" href="#section-dashboard">Dashboard</a>
-      <a class="nav-btn" data-section="vendor" href="#section-vendor">Vendors</a>
-      <a class="nav-btn" data-section="purchase-order" href="#section-purchase-order">Purchase Orders</a>
-      <a class="nav-btn" data-section="inventory" href="#section-inventory">Inventory</a>
-      <a class="nav-btn" data-section="sales-order" href="#section-sales-order">Sales Orders</a>
-      <a class="nav-btn" data-section="customer" href="#section-customer">Customers</a>
+      <a class="nav-btn active" data-short="D" data-section="dashboard" href="#section-dashboard">Dashboard</a>
+      <a class="nav-btn" data-short="V" data-section="vendor" href="#section-vendor">Vendors</a>
+      <a class="nav-btn" data-short="PO" data-section="purchase-order" href="#section-purchase-order">Purchase Orders</a>
+      <a class="nav-btn" data-short="I" data-section="inventory" href="#section-inventory">Inventory</a>
+      <a class="nav-btn" data-short="SO" data-section="sales-order" href="#section-sales-order">Sales Orders</a>
+      <a class="nav-btn" data-short="C" data-section="customer" href="#section-customer">Customers</a>
       <div class="sidebar-divider"></div>
-      <a class="nav-btn" data-section="settings" href="#section-settings">Settings</a>
-      <a class="nav-btn" data-section="help" href="#section-help">Help</a>
+      <a class="nav-btn" data-short="S" data-section="settings" href="#section-settings">Settings</a>
+      <a class="nav-btn" data-short="H" data-section="help" href="#section-help">Help</a>
     </nav>
   </aside>
   <div class="main-area">
     <header class="appbar">
       <div class="appbar-left">
         <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Menu" aria-expanded="false">☰</button>
+        <img class="brand-logo" alt="">
         <div class="appbar-title">IMS</div>
+        <span class="brand-ver"></span>
       </div>
       <div class="actions">
         <input id="global-search" class="top-search" placeholder="Search…" autocomplete="off" spellcheck="false">
@@ -43,6 +45,18 @@
         <button id="theme-btn" class="theme-btn" type="button">Dark</button>
       </div>
     </header>
+    <div class="menubar">
+      <nav class="main-nav">
+        <a class="nav-btn active" data-section="dashboard" href="#section-dashboard">Dashboard</a>
+        <a class="nav-btn" data-section="vendor" href="#section-vendor">Vendors</a>
+        <a class="nav-btn" data-section="purchase-order" href="#section-purchase-order">Purchase Orders</a>
+        <a class="nav-btn" data-section="inventory" href="#section-inventory">Inventory</a>
+        <a class="nav-btn" data-section="sales-order" href="#section-sales-order">Sales Orders</a>
+        <a class="nav-btn" data-section="customer" href="#section-customer">Customers</a>
+        <a class="nav-btn" data-section="settings" href="#section-settings">Settings</a>
+        <a class="nav-btn" data-section="help" href="#section-help">Help</a>
+      </nav>
+    </div>
     <main class="content">
   <section id="section-dashboard" class="panel section section-active">
     <div class="dash-wrap">
@@ -163,10 +177,7 @@
       <div class="vendor-actions">
         <button class="btn">New</button>
         <button class="btn">Save</button>
-        <button class="btn">Copy</button>
-        <button class="btn">Version</button>
         <button class="btn">Deactivate</button>
-        <button class="btn">Attachment</button>
         <button id="vendor-import" class="btn">Import From PO</button>
         <button id="vendor-statement" class="btn" type="button">Statement</button>
         <button class="btn">Close</button>
@@ -183,6 +194,13 @@
         <div class="vendor-count" id="vendor-count"></div>
       </aside>
       <section class="vendor-detail">
+        <div class="vendor-tabs">
+          <button class="tab active" data-tab="info">Vendor Info</button>
+          <button class="tab" data-tab="products">Vendor Products</button>
+          <button class="tab" data-tab="orders">Order History</button>
+        </div>
+        <div class="vendor-tabpanes">
+          <div id="vendor-tab-info" class="tabpane active">
         <div class="grid two-col">
           <div>
             <div class="section-title">Basic</div>
@@ -208,24 +226,20 @@
           </div>
           <div>
             <div class="section-title">Purchasing Info</div>
-            <label>Payment Terms<input id="v-terms" class="inp" data-cols="PaymentTerms,Terms"></label>
-            <label>Taxing Scheme<input id="v-tax" class="inp" data-cols="TaxingScheme,TaxCode"></label>
-            <label>Carrier<input id="v-carrier" class="inp" data-cols="Carrier,ShippingCarrier"></label>
-            <label>Currency<input id="v-currency" class="inp" data-cols="Currency"></label>
+            <label>Payment Terms<input id="v-terms" class="inp" list="v-terms-list" data-cols="PaymentTerms,Terms"></label>
+            <label>Taxing Scheme<input id="v-tax" class="inp" list="v-tax-list" data-cols="TaxingScheme,TaxCode"></label>
+            <label>Carrier<input id="v-carrier" class="inp" list="v-carrier-list" data-cols="Carrier,ShippingCarrier"></label>
+            <label>Currency<input id="v-currency" class="inp" list="v-currency-list" data-cols="Currency"></label>
+            <datalist id="v-terms-list"></datalist>
+            <datalist id="v-tax-list"></datalist>
+            <datalist id="v-carrier-list"></datalist>
+            <datalist id="v-currency-list"></datalist>
           </div>
           <div>
             <div class="section-title">Remarks</div>
             <textarea id="v-remarks" class="inp" rows="8" data-cols="Remarks,Notes,Comment"></textarea>
           </div>
         </div>
-        <div class="vendor-tabs">
-          <button class="tab active" data-tab="info">Vendor Info</button>
-          <button class="tab" data-tab="products">Vendor Products</button>
-          <button class="tab" data-tab="orders">Order History</button>
-        </div>
-        <div class="vendor-tabpanes">
-          <div id="vendor-tab-info" class="tabpane active">
-            <div class="kv" id="vendor-kv"></div>
           </div>
           <div id="vendor-tab-products" class="tabpane">
             <div id="vendor-products" class="table-host"></div>
@@ -255,69 +269,89 @@
       <aside class="vendor-search">
         <div class="search-header">Search</div>
         <label>Order #<input id="po-q-num" class="inp" placeholder=""></label>
-        <label>Status<select id="po-q-status" class="inp"><option value="">Any</option></select></label>
-        <label>Vendor<select id="po-q-vendor" class="inp"><option value="">Any</option></select></label>
-        <label>Date From<input id="po-q-from" class="inp" type="date"></label>
-        <label>Date To<input id="po-q-to" class="inp" type="date"></label>
+        <div class="row" style="margin-top:-4px">
+          <button id="po-toggle-filters" class="btn btn-small">More filters</button>
+        </div>
+        <div id="po-active-filters" class="filter-chips"></div>
+        <div id="po-more-filters" class="more-filters">
+          <label>Status<select id="po-q-status" class="inp"><option value="">Any</option></select></label>
+          <label>Vendor<select id="po-q-vendor" class="inp"><option value="">Any</option></select></label>
+          <label>Date From<input id="po-q-from" class="inp" type="date"></label>
+          <label>Date To<input id="po-q-to" class="inp" type="date"></label>
+        </div>
         <button id="po-refresh" class="btn btn-small">Refresh</button>
         <div class="vendor-list" id="po-list"></div>
         <div class="vendor-count" id="po-count"></div>
       </aside>
       <section class="vendor-detail">
-        <div class="grid two-col">
+        <div class="grid three-col po-top">
           <div>
             <div class="section-title">Vendor</div>
-            <label>Vendor<input id="po-vendor" class="inp" data-cols="Vendor,VendorName,Supplier,Company,Name"></label>
+            <label class="req"><span class="lbl">Vendor</span><input id="po-vendor" class="inp" data-cols="Vendor,VendorName,Supplier,Company,Name"></label>
             <label>Contact<input id="po-contact" class="inp" data-cols="Contact,ContactName,Attn"></label>
             <label>Phone<input id="po-phone" class="inp" data-cols="Phone,Telephone,Mobile"></label>
             <label>Vendor Address<textarea id="po-vendor-address" class="inp" rows="4" data-cols="VendorAddress,Address"></textarea></label>
           </div>
           <div>
+            <label>Terms<input id="po-terms" class="inp" list="po-terms-list" data-cols="Terms,PaymentTerms"></label>
+            <label>V. Order #<input id="po-vendor-order" class="inp" data-cols="VendorOrder,VendorPO,VOrderNo"></label>
+            <label>Location<input id="po-location" class="inp" list="po-location-list" data-cols="Location,Warehouse,Site"></label>
+            <label>Forwarder<input id="po-forwarder" class="inp" data-cols="Forwarder,Carrier,ShippingCarrier"></label>
+            <label>WB#<input id="po-wb" class="inp" data-cols="WB,Waybill,AirwayBill"></label>
+          </div>
+          <div>
             <div class="section-title">Order</div>
-            <label>Order #<input id="po-number" class="inp" data-cols="OrderNo,OrderNumber,PO,PurchaseOrderNo,DocumentNo"></label>
+            <label class="req"><span class="lbl">Order #</span><input id="po-number" class="inp" data-cols="OrderNo,OrderNumber,PO,PurchaseOrderNo,DocumentNo"></label>
             <label>Date<input id="po-date" class="inp" data-cols="Date,OrderDate"></label>
             <label>Status<input id="po-status" class="inp" data-cols="Status"></label>
             <label>Ship-To Address<textarea id="po-shipto" class="inp" rows="4" data-cols="ShipTo,ShipToAddress,ShipToAddr"></textarea></label>
+            <div class="muted" style="margin-top:4px"><a id="po-no-shipping" href="#">no shipping</a></div>
           </div>
         </div>
         <div class="section-title">Items</div>
-        <div class="row">
+        <div class="row po-item-toolbar" id="po-item-toolbar">
           <button id="po-item-add" class="btn btn-small">Add Row</button>
           <button id="po-item-del" class="btn btn-small">Delete Row</button>
         </div>
         <div id="po-items" class="table-host"></div>
-        <div class="vendor-tabs">
-          <button class="tab active" data-tab="purchasing">Purchasing</button>
-          <button class="tab" data-tab="advanced">Advanced</button>
-        </div>
         <div class="vendor-tabpanes">
           <div id="po-tab-purchasing" class="tabpane active">
-        <div class="grid three-col">
+        <div class="grid three-col po-bottom">
           <div>
-            <div class="section-title">Terms & Dates</div>
-            <label>Terms<input id="po-terms" class="inp" data-cols="Terms,PaymentTerms"></label>
             <label>Due Date<input id="po-due" class="inp" data-cols="DueDate"></label>
+            <label>Taxing Scheme<input id="po-tax" class="inp" list="po-tax-list" data-cols="TaxingScheme,TaxCode,Tax"></label>
+            <label>Non-Vendor Costs<input id="po-nonvendor" class="inp" data-cols="NonVendorCosts,ExtraCosts"></label>
+            <label>Currency<input id="po-currency" class="inp" list="po-currency-list" data-cols="Currency"></label>
+            <datalist id="po-terms-list"></datalist>
+            <datalist id="po-tax-list"></datalist>
+            <datalist id="po-currency-list"></datalist>
+          </div>
+          <div>
             <label>Req. Ship Date<input id="po-req-ship" class="inp" data-cols="RequiredShipDate,ReqShipDate"></label>
             <label>Remarks<textarea id="po-remarks" class="inp" rows="4" data-cols="Remarks,Notes,Comment"></textarea></label>
           </div>
           <div>
-            <div class="section-title">Tax & Currency</div>
-            <label>Taxing Scheme<input id="po-tax" class="inp" data-cols="TaxingScheme,TaxCode,Tax"></label>
-            <label>Non-Vendor Costs<input id="po-nonvendor" class="inp" data-cols="NonVendorCosts,ExtraCosts"></label>
-            <label>Currency<input id="po-currency" class="inp" data-cols="Currency"></label>
-          </div>
-          <div>
             <div class="section-title">Totals</div>
-            <label>Sub-Total<input id="po-subtotal" class="inp" data-cols="SubTotal,Subtotal" readonly></label>
-            <label>Freight<input id="po-freight" class="inp" data-cols="Freight,Shipping" readonly></label>
-            <label>Total<input id="po-total" class="inp" data-cols="Total,GrandTotal" readonly></label>
-            <label>Paid<input id="po-paid" class="inp" data-cols="Paid" readonly></label>
-            <label>Balance<input id="po-balance" class="inp" data-cols="Balance" readonly></label>
-            <button class="btn" style="margin-top:8px">Receive &amp; Pay</button>
+            <label class="money">Sub-Total<input id="po-subtotal" class="inp" data-cols="SubTotal,Subtotal" readonly></label>
+            <label class="money">Freight<input id="po-freight" class="inp" data-cols="Freight,Shipping" readonly></label>
+            <label class="money">Total<input id="po-total" class="inp" data-cols="Total,GrandTotal" readonly></label>
+            <label class="money">Paid<input id="po-paid" class="inp" data-cols="Paid" readonly></label>
+            <label class="money balance">Balance<input id="po-balance" class="inp" data-cols="Balance" readonly></label>
+            <select id="po-receive-pay" class="btn" style="margin-top:8px">
+              <option value="" selected>Receive &amp; Pay</option>
+              <option value="receive">Receive</option>
+              <option value="pay">Pay</option>
+              <option value="receive_pay">Receive &amp; Pay</option>
+              <option value="cancel">Cancel</option>
+            </select>
           </div>
         </div>
           </div>
           <div id="po-tab-advanced" class="tabpane"><div class="status">No advanced fields yet</div></div>
+        </div>
+        <div class="vendor-tabs tabs-bottom">
+          <button class="tab active" data-tab="purchasing">Purchasing</button>
+          <button class="tab" data-tab="advanced">Advanced</button>
         </div>
       </section>
     </div>
@@ -328,10 +362,7 @@
       <div class="vendor-actions">
         <button class="btn">New</button>
         <button id="inv-save" class="btn">Save</button>
-        <button class="btn">Copy</button>
-        <button class="btn">Version</button>
         <button class="btn">Deactivate</button>
-        <button class="btn">Attachment</button>
         <button class="btn">Close</button>
       </div>
     </div>
@@ -494,10 +525,6 @@
         <button class="btn">New</button>
         <button class="btn">Save</button>
         <button class="btn">Print</button>
-        <button class="btn">Copy</button>
-        <button class="btn">Version</button>
-        <button class="btn">Attachment</button>
-        <button class="btn">Sticky</button>
         <button class="btn">Close</button>
       </div>
     </div>
@@ -576,10 +603,7 @@
       <div class="vendor-actions">
         <button class="btn">New</button>
         <button id="c-save" class="btn">Save</button>
-        <button class="btn">Copy</button>
-        <button class="btn">Version</button>
         <button class="btn">Deactivate</button>
-        <button class="btn">Attachment</button>
         <button id="customer-statement" class="btn" type="button">Statement</button>
         <button class="btn">Close</button>
       </div>
@@ -732,6 +756,7 @@
     </main>
   </div>
 </div>
-<script type="module" src="./app.js"></script>
+<div id="sticky-footer" class="sticky-footer"></div>
+<script type="module" src="./app.js?v=teal61"></script>
 </body>
 </html>
