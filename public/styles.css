@@ -195,7 +195,7 @@ body.desktop.sidebar-collapsed .table-host td{padding:4px 6px}
 body.desktop.sidebar-collapsed #section-purchase-order #po-items th,
 body.desktop.sidebar-collapsed #section-purchase-order #po-items td{padding:4px 6px}
 body.desktop .appbar{flex-wrap:nowrap}
-body.desktop .content{padding:18px 20px}
+body.desktop .content{padding:calc(var(--menubar-height, 0px) + 18px) 20px 18px}
 /* Horizontal nav mode */
 body.nav-top .app-shell{grid-template-columns:1fr}
 body.nav-top .sidebar{display:none}
