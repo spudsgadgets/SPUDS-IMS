@@ -4,6 +4,7 @@ param(
   [switch]$AllowDB,
   [object]$OpenBrowser = $false,
   [string]$AdminPassword = "admin123",
+  [string]$DbPassword,
   [switch]$Debug,
   [switch]$NoDbPrompt
 )
@@ -235,6 +236,11 @@ FLUSH PRIVILEGES;
   $env:MYSQL_PASSWORD = $dbPassword
   $env:IMS_DB_PASSWORD = $dbPassword
 }
+try{
+  if(-not [string]::IsNullOrWhiteSpace($DbPassword)){
+    $env:IMS_DB_PASSWORD = $DbPassword
+  }
+}catch{}
 Ensure-DbUser $root $DbPort
 if([string]::IsNullOrWhiteSpace($env:MYSQL_USER)){ $env:MYSQL_USER = "root" }
 if([string]::IsNullOrWhiteSpace($env:MYSQL_PASSWORD)){ $env:MYSQL_PASSWORD = "" }
