@@ -2,7 +2,8 @@ param(
   [Parameter(Mandatory=$true)][string]$ZipPath,
   [Parameter(Mandatory=$true)][string]$Tag,
   [Parameter(Mandatory=$true)][string]$Name,
-  [string]$Body = ""
+  [string]$Body = "",
+  [string]$TokenPath
 )
 $ErrorActionPreference = "Stop"
 function Ensure-GH {
@@ -47,8 +48,23 @@ if($repoUrl -match 'github.com[:/](.+?)/(.+?)(\.git)?$'){
 }
 $zipFull = (Resolve-Path $ZipPath).Path
 # Token (if any) is used for non-interactive auth with gh and/or REST fallback
+if(-not $env:GH_TOKEN -and $TokenPath -and (Test-Path -LiteralPath $TokenPath)){
+  try{
+    $t = Get-Content -Raw -LiteralPath $TokenPath
+    if($t){ $env:GH_TOKEN = $t.Trim() }
+  }catch{}
+}
 $token = $env:GH_TOKEN
 if(-not $token -and $env:GITHUB_TOKEN){ $token = $env:GITHUB_TOKEN }
+if(-not $token){
+  try{
+    $defaultTokenPath = Join-Path $env:LOCALAPPDATA 'SPUDS-IMS\gh-token'
+    if(Test-Path -LiteralPath $defaultTokenPath){
+      $t = Get-Content -Raw -LiteralPath $defaultTokenPath
+      if($t){ $token = $t.Trim() }
+    }
+  }catch{}
+}
 if($token -and -not $env:GH_TOKEN){ $env:GH_TOKEN = $token }
 # Prefer gh CLI if available and logged in
 Ensure-GH
@@ -70,11 +86,57 @@ if(Get-Command gh -ErrorAction SilentlyContinue){
 if(-not $token){ Write-Warning "GH_TOKEN/GITHUB_TOKEN not set; skipping publish."; exit 0 }
 $uri = "https://api.github.com/repos/$owner/$repo/releases"
 $headers = @{ Authorization = "token $token"; "User-Agent" = "spuds-ims-release-script" }
-$payload = @{ tag_name=$Tag; name=$Name; body=$Body; draft=$false; prerelease=$false } | ConvertTo-Json
-$rel = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body $payload -ContentType "application/json"
-$uploadUrl = $rel.upload_url -replace '\{\?name,label\}$',''
+function Get-ReleaseByTag([string]$t){
+  try{
+    $u = "https://api.github.com/repos/$owner/$repo/releases/tags/$t"
+    return Invoke-RestMethod -Method Get -Uri $u -Headers $headers
+  }catch{
+    return $null
+  }
+}
+function Create-Release([string]$t,[string]$nm,[string]$bd){
+  $payload = @{ tag_name=$t; name=$nm; body=$bd; draft=$false; prerelease=$false } | ConvertTo-Json
+  return Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body $payload -ContentType "application/json"
+}
+function Update-Release([int]$id,[string]$bd,[string]$nm){
+  $u = "https://api.github.com/repos/$owner/$repo/releases/$id"
+  $pl = @{}
+  if($bd){ $pl.body = $bd }
+  if($nm){ $pl.name = $nm }
+  $payload = $pl | ConvertTo-Json
+  return Invoke-RestMethod -Method Patch -Uri $u -Headers $headers -Body $payload -ContentType "application/json"
+}
+function Delete-AssetIfExists([int]$rid,[string]$name){
+  $u = "https://api.github.com/repos/$owner/$repo/releases/$rid/assets"
+  try{
+    $assets = Invoke-RestMethod -Method Get -Uri $u -Headers $headers
+    if($assets){
+      $match = $assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+      if($match -and $match.id){
+        $del = "https://api.github.com/repos/$owner/$repo/releases/assets/$($match.id)"
+        Invoke-RestMethod -Method Delete -Uri $del -Headers $headers | Out-Null
+        Write-Host ("Deleted existing asset: {0}" -f $name)
+      }
+    }
+  }catch{}
+}
+$rel = Get-ReleaseByTag $Tag
+if(-not $rel){
+  try{
+    $rel = Create-Release $Tag $Name $Body
+  }catch{
+    $rel = Get-ReleaseByTag $Tag
+  }
+}else{
+  try{ Update-Release ([int]$rel.id) $Body $Name | Out-Null }catch{}
+}
+if(-not $rel){ Write-Warning "Could not create or fetch release for tag $Tag"; exit 1 }
+$uploadUrl = "https://uploads.github.com/repos/$owner/$repo/releases/$($rel.id)/assets"
 $assetName = [System.IO.Path]::GetFileName($zipFull)
-$uploadUri = "$uploadUrl?name=$([uri]::EscapeDataString($assetName))"
+Delete-AssetIfExists ([int]$rel.id) $assetName
+$uploadUri = ($uploadUrl + "?name=" + ([uri]::EscapeDataString($assetName)))
 $bytes = [System.IO.File]::ReadAllBytes($zipFull)
+Write-Host ("Upload URL: {0}" -f $uploadUrl)
+Write-Host ("Upload URI: {0}" -f $uploadUri)
 Invoke-RestMethod -Method Post -Uri $uploadUri -Headers $headers -ContentType "application/zip" -Body $bytes | Out-Null
-Write-Host "Published GitHub Release via REST: $Tag"
+Write-Host "Published/Updated GitHub Release via REST: $Tag"
