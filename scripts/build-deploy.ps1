@@ -2,7 +2,9 @@ param(
   [string]$ZipName = "SPUDS-IMS-Deploy.zip",
   [string]$ReleasesDir = "releases",
   [switch]$Publish,
-  [switch]$NoMariaDB
+  [switch]$NoMariaDB,
+  [switch]$CreateInstaller,
+  [string]$InstallerName = "SPUDS-IMS-Installer.zip"
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -329,4 +331,107 @@ Built:   $($meta.builtAt)
 This release package mirrors the root 'latest' ZIP and includes release-info.json.
 "@
   & (Join-Path $root "scripts\publish-release.ps1") -ZipPath $zipRelease -Tag ("v{0}-{1}-{2}" -f $pkgVer,$ts,$sha) -Name ("SPUDS IMS {0}" -f $pkgVer) -Body $notes
+}
+
+# Create enhanced installer package if requested
+if($CreateInstaller){
+  Write-Host "Creating enhanced installer package..."
+  $installerBundle = Join-Path $root ("installer-bundle-" + [guid]::NewGuid().ToString())
+  New-Item -ItemType Directory -Path $installerBundle | Out-Null
+  try{
+    # Copy the main deploy ZIP
+    $deployZipName = "SPUDS-IMS-Deploy-v{0}.zip" -f $pkgVer
+    $deployZipDest = Join-Path $installerBundle $deployZipName
+    Copy-Item -Force -LiteralPath $zipLatest -Destination $deployZipDest
+    
+    # Copy installer script
+    $installerScript = Join-Path $root "scripts\install-spuds-ims.ps1"
+    if(Test-Path $installerScript){
+      Copy-Item -Force -LiteralPath $installerScript -Destination (Join-Path $installerBundle "install-spuds-ims.ps1")
+    }
+    
+    # Create installation instructions
+    $instructions = @"
+# SPUDS IMS Installation Instructions
+
+## Quick Install (Recommended)
+1. Extract this archive to a folder
+2. Right-click on `install-spuds-ims.ps1` and select "Run with PowerShell"
+3. Follow the on-screen instructions
+
+## Silent Install (Advanced)
+For automated deployment, run PowerShell as Administrator and execute:
+```powershell
+.\install-spuds-ims.ps1 -Silent -CreateShortcuts -StartAfterInstall
+```
+
+## Custom Installation
+```powershell
+# Install to custom directory
+.\install-spuds-ims.ps1 -InstallDir "C:\MyApps\SPUDS-IMS"
+
+# Skip MariaDB installation
+.\install-spuds-ims.ps1 -NoMariaDB
+
+# Custom ports
+.\install-spuds-ims.ps1 -Port 8080 -DbPort 3308
+```
+
+## Post-Installation
+- Application URL: http://localhost:3201
+- Database Port: 3307
+- Start scripts: quick-start.bat, start-spuds-ims.bat, start-database.bat
+
+## Support
+Installation log: %TEMP%\spuds-ims-install.log
+"@
+    Set-Content -Path (Join-Path $installerBundle "README-INSTALL.txt") -Value $instructions -Encoding UTF8
+    
+    # Create batch file for easy execution
+    $easyInstall = @"
+@echo off
+echo SPUDS IMS Installer
+echo ===================
+echo.
+echo This will install SPUDS IMS with default settings.
+echo Press any key to continue or Ctrl+C to cancel...
+pause > nul
+powershell -ExecutionPolicy Bypass -File "install-spuds-ims.ps1"
+pause
+"@
+    Set-Content -Path (Join-Path $installerBundle "install.bat") -Value $easyInstall -Encoding ASCII
+    
+    # Create installer metadata
+    $installerMeta = [pscustomobject]@{
+      name = "SPUDS-IMS-Installer"
+      version = $pkgVer
+      commit = $sha
+      builtAt = (Get-Date).ToString("s")
+      deployZip = $deployZipName
+      includes = @("install-spuds-ims.ps1", "README-INSTALL.txt", "install.bat")
+      features = @(
+        "Silent installation support",
+        "Portable Node.js and MariaDB",
+        "Desktop shortcuts",
+        "PATH integration",
+        "Custom installation paths",
+        "Automated database setup"
+      )
+    }
+    $installerMetaPath = Join-Path $installerBundle "installer-info.json"
+    $installerMeta | ConvertTo-Json -Depth 5 | Out-File -FilePath $installerMetaPath -Encoding UTF8 -Force
+    
+    # Build installer ZIP
+    $installerZip = Join-Path $releaseDirPath ("SPUDS-IMS-Installer-v{0}.zip" -f $pkgVer)
+    New-ZipFromFolder $installerBundle $installerZip
+    
+    Write-Host "Enhanced installer package created: $installerZip"
+    Write-Host "  - Includes silent installation support"
+    Write-Host "  - Portable dependencies (Node.js + MariaDB)"
+    Write-Host "  - Desktop shortcuts and PATH integration"
+    Write-Host "  - Custom installation options"
+    
+  }finally{
+    Remove-ItemRetry $installerBundle
+  }
 }

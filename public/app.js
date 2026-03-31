@@ -1,32 +1,30 @@
-const themeBtn=document.getElementById('theme-btn')
-const modeBtn=document.getElementById('mode-btn')
-const navToggleBtn=document.getElementById('nav-toggle')
-const navBackdrop=document.getElementById('nav-backdrop')
-const API_BASE=(location.protocol==='file:'? 'http://localhost:3200' : '')
+const API_BASE=(location.protocol==='file:'? 'http://localhost:3201' : '')
 function api(path){return API_BASE+path}
-function applyTheme(t){document.body.classList.toggle('dark',t==='dark');try{localStorage.setItem('theme',t)}catch{};if(themeBtn)themeBtn.textContent=t==='dark'?'Light':'Dark'}
+function applyTheme(t){document.body.classList.toggle('dark',t==='dark');try{localStorage.setItem('theme',t)}catch{};const themeBtn=document.getElementById('theme-btn');if(themeBtn)themeBtn.textContent=t==='dark'?'Light':'Dark'}
 function applyMode(m){
   document.body.classList.remove('mobile','desktop')
-  document.body.classList.remove('nav-open')
   if(m==='mobile'){
     document.body.classList.add('mobile')
-    document.body.classList.remove('sidebar-collapsed')
   }else if(m==='desktop'){
     document.body.classList.add('desktop')
-    try{
-      const sc=localStorage.getItem('sidebarCollapsed')
-      if(sc==='1')document.body.classList.add('sidebar-collapsed')
-    }catch{}
   }
   try{localStorage.setItem('mode',m)}catch{}
-  if(modeBtn)modeBtn.textContent=m==='mobile'?'Desktop':'Mobile'
-  if(navToggleBtn)navToggleBtn.setAttribute('aria-expanded','false')
+  const modeBtn=document.getElementById('mode-btn');if(modeBtn)modeBtn.textContent=m==='mobile'?'Desktop':'Mobile'
   updateStickyTop()
 }
+document.addEventListener('DOMContentLoaded',()=>{
+  const themeBtn=document.getElementById('theme-btn')
+  const modeBtn=document.getElementById('mode-btn')
+  const authBtnEl=document.getElementById('auth-btn')
+  if(modeBtn)modeBtn.addEventListener('click',()=>{applyMode(document.body.classList.contains('mobile')?'desktop':'mobile')})
+  if(themeBtn)themeBtn.addEventListener('click',()=>{applyTheme(document.body.classList.contains('dark')?'light':'dark');updateStickyTop()})
+  if(authBtnEl)authBtnEl.addEventListener('click',async()=>{
+    if(__authName){await doLogout();location.href='./login.html';return}
+    location.href='./login.html'
+  })
+})
 let mSaved=null;try{mSaved=localStorage.getItem('mode')}catch{};applyMode(mSaved||(window.innerWidth<=768?'mobile':'desktop'))
 let tSaved=null;try{tSaved=localStorage.getItem('theme')}catch{};applyTheme(tSaved||((window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'))
-if(modeBtn)modeBtn.addEventListener('click',()=>{applyMode(document.body.classList.contains('mobile')?'desktop':'mobile')})
-if(themeBtn)themeBtn.addEventListener('click',()=>{applyTheme(document.body.classList.contains('dark')?'light':'dark');updateStickyTop()})
 document.body.classList.remove('focus-strong');try{localStorage.removeItem('focus')}catch{}
 function __toUpperField(el){if(!el)return;const t=String(el.value||'');const u=t.toUpperCase();if(t!==u){const s=el.selectionStart;const e=el.selectionEnd;el.value=u;if(s!=null&&e!=null){try{el.setSelectionRange(s,e)}catch{}}}}
 function __normalizeAllInputs(){document.querySelectorAll('.inp').forEach(el=>{if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')__toUpperField(el)})}
@@ -98,36 +96,7 @@ function __formatMoneyInputs(ids){
   ids.forEach(id=>{const el=document.getElementById(id);if(!el)return;el.value=fmt(el.value)})
 }
 window.addEventListener('load',()=>{__formatMoneyInputs(['po-subtotal','po-freight','po-total','po-paid','po-balance'])})
-function __isOverlayNav(){
-  if(document.body.classList.contains('desktop'))return false
-  if(document.body.classList.contains('mobile'))return true
-  return window.innerWidth<=900
-}
-function __setNavOpen(open){
-  const shouldOpen=!!open
-  document.body.classList.toggle('nav-open',shouldOpen)
-  if(navToggleBtn)navToggleBtn.setAttribute('aria-expanded',shouldOpen?'true':'false')
-}
-if(navToggleBtn)navToggleBtn.addEventListener('click',()=>{
-  if(document.body.classList.contains('desktop')){
-    const nowCollapsed=!document.body.classList.contains('sidebar-collapsed')
-    document.body.classList.toggle('sidebar-collapsed',nowCollapsed)
-    try{localStorage.setItem('sidebarCollapsed',nowCollapsed?'1':'0')}catch{}
-  }else{
-    __setNavOpen(!document.body.classList.contains('nav-open'))
-  }
-})
-if(navBackdrop)navBackdrop.addEventListener('click',()=>{
-  __setNavOpen(false)
-})
-window.addEventListener('keydown',e=>{
-  if(e&&e.key==='Escape'&&document.body.classList.contains('nav-open')){
-    __setNavOpen(false)
-  }
-})
-window.addEventListener('resize',()=>{
-  if(!__isOverlayNav())__setNavOpen(false)
-})
+
 // enable horizontal top navigation to maximize content width
 try{document.body.classList.add('nav-top')}catch{}
 // navigation
@@ -136,7 +105,7 @@ const sections=[...document.querySelectorAll('.section')]
 let __currentSection='dashboard'
 function __ensurePOFooter(){const receiveBtn=document.getElementById('po-receive-pay');const foot=document.getElementById('sticky-footer');const sect=document.getElementById('section-purchase-order');if(receiveBtn&&foot){try{if(receiveBtn.parentElement!==foot){foot.innerHTML='';foot.appendChild(receiveBtn)}foot.style.display='flex';const fh=foot.offsetHeight||0;try{document.documentElement.style.setProperty('--footer-height',fh+'px')}catch{};if(sect)sect.style.paddingBottom=(fh+12)+'px';if(typeof __poFitToScreen==='function')setTimeout(__poFitToScreen,0)}catch{}}}
 function showSection(id){__currentSection=id;sections.forEach(s=>s.classList.toggle('section-active',s.id===('section-'+id)));navButtons.forEach(b=>b.classList.toggle('active',b.dataset.section===id));try{history.replaceState(null,'','#section-'+id)}catch{};const foot=document.getElementById('sticky-footer');if(foot)foot.style.display=(id==='purchase-order'?'flex':'none');if(id==='inventory')initInventoryPage();if(id==='vendor')initVendorPage();if(id==='purchase-order'){initPurchaseOrderPage();__ensurePOFooter();setTimeout(__updatePOToolbarFix,0)}else{__clearPOToolbarFix()}if(id==='sales-order')initSalesOrderPage();if(id==='customer')initCustomerPage();const gs=document.getElementById('global-search');if(gs&&gs.value)applyGlobalSearch(gs.value)}
-navButtons.forEach(b=>b.addEventListener('click',(e)=>{e.preventDefault();showSection(b.dataset.section);if(__isOverlayNav())__setNavOpen(false)}))
+navButtons.forEach(b=>b.addEventListener('click',(e)=>{e.preventDefault();showSection(b.dataset.section)}))
 // default to dashboard
 showSection('dashboard')
 const tbl=document.getElementById('table')
@@ -1219,7 +1188,7 @@ let __poSerialObs=null;function __bindPOSerialObserver(){try{const host=document
 function __poNumberExists(y,num){try{if(!num)return false;const year=String(y);return (__poRows||[]).some(r=>{const n=__extractPONumber(r);if(!n)return false;const dv=pick(r,['Date','OrderDate']);const d=dv?new Date(dv):null;const ry=(d&&d.toString()!=='Invalid Date')?String(d.getFullYear()):'';return n===num && ry===year})}catch{return false}}
 function __bindPOSaveButton(){try{const act=document.querySelector('#section-purchase-order .vendor-actions');if(!act)return;const btn=[...act.querySelectorAll('button')].find(b=>/^\s*Save\s*$/i.test(b.textContent||''));if(btn&&!btn.dataset.bound){btn.dataset.bound='1';btn.addEventListener('click',e=>{try{const numEl=document.getElementById('po-number');const dateEl=document.getElementById('po-date');const y=(dateEl&&dateEl.value)?(new Date(dateEl.value)).getFullYear():new Date().getFullYear();let num=(numEl&&numEl.value||'').trim();if(!num){num=__poNextNumber()}else{if(__poNumberExists(y,num)){const keep=confirm('Duplicate PO number exists this year. Keep anyway?');if(!keep){let candidate=num;let guard=0;do{candidate=__poNextNumber();guard++}while(__poNumberExists(y,candidate)&&guard<50);num=candidate}}}if(numEl)numEl.value=num;alert('PO number set to '+num)}catch{}})}}catch{}}
 function __bindPOCopyNumber(){try{const el=document.getElementById('po-number');if(!el||el.dataset.copybound)return;el.dataset.copybound='1';el.addEventListener('dblclick',async()=>{const s=el.value||'';try{await navigator.clipboard.writeText(s);el.title='Copied!';setTimeout(()=>{el.title=''},1000)}catch{try{el.select();document.execCommand('copy');el.blur();el.title='Copied!';setTimeout(()=>{el.title=''},1000)}catch{}}})}catch{}}
-function renderPOList(items){const list=document.getElementById('po-list');const count=document.getElementById('po-count');if(!list)return;list.innerHTML='';if(!items.length){list.textContent='No orders';if(count)count.textContent='0';return}const filtered=items.map(r=>({row:r,num:__extractPONumber(r)})).filter(x=>x.num);filtered.forEach(({row},idx)=>{const div=document.createElement('div');div.className='vendor-item';div.textContent=__poDisplayNumber(row);div.addEventListener('click',()=>{document.querySelectorAll('#po-list .vendor-item').forEach(i=>i.classList.remove('active'));div.classList.add('active');bindPO(row)});list.appendChild(div);if(idx===0){div.classList.add('active');bindPO(row)}});if(count)count.textContent=String(filtered.length)}
+
 function __applyPOTrackingFromInventory(){try{const typeSel=document.getElementById('po-adv-track-type');const serialPanel=document.getElementById('po-adv-serial-panel');const lotPanel=document.getElementById('po-adv-lot-panel');if(!typeSel||!serialPanel||!lotPanel){setTimeout(__applyPOTrackingFromInventory,300);return}const items=__poItemMap.get(__poCurrentKey)||[];const idx=__poSelectedIndex>=0?__poSelectedIndex:0;const it=items[idx];if(!it){setTimeout(__applyPOTrackingFromInventory,300);return}ensureTrack(it);const invRow=__poFindInvRowBy(it.item,it.barcode);const isNS=__poIsNonStock(invRow);if(isNS){typeSel.value='None';typeSel.disabled=true;serialPanel.style.display='none';lotPanel.style.display='none';typeSel.title='Non-stock/service item — tracking disabled'}else{typeSel.disabled=false;typeSel.title='';const t=it.track.type||'None';typeSel.value=t;serialPanel.style.display=(t==='Serial')?'block':'none';lotPanel.style.display=(t==='Lot')?'block':'none'}}catch{}}
 function renderPOAdvReturnItems(){const host=document.getElementById('po-adv-return-items');if(!host)return;const items=__poItemMap.get(__poCurrentKey)||[];host.innerHTML='';const table=document.createElement('table');const thead=document.createElement('thead');const trh=document.createElement('tr');['Item','Description','Barcode','Quantity','Unit Price','Discount','Sub-Total'].forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});thead.appendChild(trh);table.appendChild(thead);let subtotal=0;const tbody=document.createElement('tbody');items.forEach(it=>{const tr=document.createElement('tr');const td1=document.createElement('td');td1.textContent=it.item||'';tr.appendChild(td1);const td2=document.createElement('td');td2.textContent=it.desc||'';tr.appendChild(td2);const tdB=document.createElement('td');tdB.textContent=it.barcode||'';tr.appendChild(tdB);const q=parseNum(it.qty);const p=parseNum(it.price);const d=parseNum(it.discount);const sub=Math.max(0,(q*p)-d);subtotal+=sub;const td3=document.createElement('td');td3.textContent=String(q);tr.appendChild(td3);const td4=document.createElement('td');td4.textContent=p.toFixed(2);tr.appendChild(td4);const td5=document.createElement('td');td5.textContent=d.toFixed(2);tr.appendChild(td5);const td6=document.createElement('td');td6.textContent=sub.toFixed(2);tr.appendChild(td6);tbody.appendChild(tr)});table.appendChild(tbody);host.appendChild(table);const set=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val.toFixed(2)};set('po-adv-return-subtotal',subtotal);const feeEl=document.getElementById('po-adv-return-fee');const refundedEl=document.getElementById('po-adv-return-refunded');const fee=parseNum(feeEl&&feeEl.value);const refunded=parseNum(refundedEl&&refundedEl.value);const credit=Math.max(0,subtotal-fee-refunded);const credEl=document.getElementById('po-adv-return-credit');if(credEl)credEl.value=credit.toFixed(2)}
 function bindPO(row){const map=['po-vendor','po-contact','po-phone','po-vendor-address','po-number','po-date','po-status','po-shipto','po-terms','po-due','po-req-ship','po-remarks','po-tax','po-nonvendor','po-currency','po-subtotal','po-freight','po-total','po-paid','po-balance'];map.forEach(id=>{const el=document.getElementById(id);if(!el)return;const cols=parseCols(el);el.value=pick(row,cols)});const key=String(pick(row,['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo'])||'');__poCurrentKey=key||('__new__'+Date.now());if(!__poItemMap.has(__poCurrentKey))__poItemMap.set(__poCurrentKey,[]);renderItems();__syncPOAdvancedFromMain();__wirePOAdvancedMirrors();const freightEl=document.getElementById('po-freight');const paidEl=document.getElementById('po-paid');if(freightEl)freightEl.addEventListener('input',()=>{calcTotals(__poItemMap.get(__poCurrentKey)||[]);__syncPOAdvancedFromMain()});if(paidEl)paidEl.addEventListener('input',()=>{calcTotals(__poItemMap.get(__poCurrentKey)||[]);__syncPOAdvancedFromMain()})}
