@@ -81,12 +81,18 @@ async function __startDbIfNeeded({host,port}){
   }
   const dbScript=path.join(__dirname,'scripts','start-db.ps1')
   if(!fs.existsSync(dbScript))throw new Error('start-db.ps1 not found: '+dbScript)
-  global.__dbStartInFlight=(async()=>{
-    const cp=spawn('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',dbScript,'-Port',p],{cwd:__dirname,detached:true,windowsHide:true,stdio:'ignore'})
-    cp.unref()
-    const ok=await __waitForTcp(host,p,60000)
-    if(!ok)throw new Error("MariaDB didn't start on "+host+":"+p)
-  })()
+  global.__dbStartInFlight=new Promise((resolve,reject)=>{
+    execFile('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',dbScript,'-Port',p],{cwd:__dirname,windowsHide:true,maxBuffer:1024*1024*20},(e,stdout,stderr)=>{
+      if(e){
+        reject(new Error(String(stderr||stdout||e&&e.message||e)))
+        return
+      }
+      __waitForTcp(host,p,60000).then(ok=>{
+        if(!ok)reject(new Error("MariaDB didn't start on "+host+":"+p))
+        else resolve()
+      }).catch(reject)
+    })
+  })
   try{
     await global.__dbStartInFlight
   }finally{
@@ -416,7 +422,7 @@ async function __maybeRenameLegacyDatabase(conn,{fromDb,toDb}){
 }
 async function ensurePool(){
   if(!mysql)throw new Error('mysql2 not installed')
-  const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB,waitForConnections:true,connectionLimit:10,queueLimit:0}
+  const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB,waitForConnections:true,connectionLimit:10,queueLimit:0,connectTimeout:10000,enableKeepAlive:true,keepAliveInitialDelay:0}
   if(!global.__pool)global.__pool=mysql.createPool(cfg)
   try{
     await global.__pool.query('SELECT 1')
@@ -441,8 +447,21 @@ async function ensurePool(){
     }
     return global.__pool
   }catch(e){
-    const msg=String(e&&e.message||'')
-    const code=String(e&&e.code||'')
+    let msg=String(e&&e.message||'')
+    let code=String(e&&e.code||'')
+    const isDrop=code==='PROTOCOL_CONNECTION_LOST'||code==='PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR'||code==='PROTOCOL_ENQUEUE_AFTER_QUIT'||code==='ECONNRESET'||code==='EPIPE'||/Lost connection to MySQL server/i.test(msg)||/Connection lost/i.test(msg)
+    if(isDrop){
+      try{await global.__pool.end()}catch{}
+      global.__pool=mysql.createPool(cfg)
+      try{
+        await global.__pool.query('SELECT 1')
+        return global.__pool
+      }catch(e3){
+        e=e3
+        msg=String(e3&&e3.message||'')
+        code=String(e3&&e3.code||'')
+      }
+    }
     const isConn=code==='ECONNREFUSED'||code==='ETIMEDOUT'||code==='EHOSTUNREACH'||code==='ENOTFOUND'||/ERROR\s+2002|10061|ECONNREFUSED|Can('|’)t connect to (server|MySQL server)/i.test(msg)
     if(isConn&&__isLocalHost(cfg.host)){
       await __startDbIfNeeded({host:cfg.host,port:String(cfg.port)})
@@ -1300,6 +1319,54 @@ if(url.pathname==='/api/vendors/import-from-po'&&req.method==='POST'){
     const [after]=await pool.query('SELECT COUNT(*) AS c FROM `vendor_derived`');const cAfter=Number(after&&after[0]&&after[0].c||0);
     ok(res,{ok:true,added:Math.max(0,cAfter-cBefore),total:cAfter,sourceColumn:vendorCol})
   }catch(e){json(res,500,{error:String(e&&e.message||e)})}
+  return
+}
+if(url.pathname==='/api/vendor/flags'&&req.method==='GET'){
+  try{
+    const pool=await ensurePool();
+    await pool.query('CREATE TABLE IF NOT EXISTS `vendor_extra` ( `Name` VARCHAR(255) PRIMARY KEY, `Address` TEXT, `BusinessAddress` TEXT, `Contact` TEXT, `Phone` TEXT, `Fax` TEXT, `Email` TEXT, `Website` TEXT, `Currency` TEXT, `PaymentTerms` TEXT, `TaxingScheme` TEXT, `Carrier` TEXT, `Remarks` TEXT, `Active` TINYINT(1) NOT NULL DEFAULT 1 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    try{const [cols]=await pool.query('SHOW COLUMNS FROM `vendor_extra`');const names=new Set((cols||[]).map(c=>c.Field));const adds=[];if(!names.has('BusinessAddress'))adds.push('ADD COLUMN `BusinessAddress` TEXT');if(!names.has('Active'))adds.push('ADD COLUMN `Active` TINYINT(1) NOT NULL DEFAULT 1');if(adds.length)await pool.query('ALTER TABLE `vendor_extra` '+adds.join(', '))}catch{}
+    const [rows]=await pool.query('SELECT `Name`,`Active` FROM `vendor_extra`');
+    ok(res,{flags:rows||[]})
+  }catch(e){
+    ok(res,{flags:[]})
+  }
+  return
+}
+if(url.pathname==='/api/vendor/extended'&&req.method==='GET'){
+  try{
+    const name=(url.searchParams.get('name')||'').trim();
+    if(!name)return bad(res,'missing name');
+    const pool=await ensurePool();
+    await pool.query('CREATE TABLE IF NOT EXISTS `vendor_extra` ( `Name` VARCHAR(255) PRIMARY KEY, `Address` TEXT, `BusinessAddress` TEXT, `Contact` TEXT, `Phone` TEXT, `Fax` TEXT, `Email` TEXT, `Website` TEXT, `Currency` TEXT, `PaymentTerms` TEXT, `TaxingScheme` TEXT, `Carrier` TEXT, `Remarks` TEXT, `Active` TINYINT(1) NOT NULL DEFAULT 1 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    try{const [cols]=await pool.query('SHOW COLUMNS FROM `vendor_extra`');const names=new Set((cols||[]).map(c=>c.Field));const adds=[];if(!names.has('BusinessAddress'))adds.push('ADD COLUMN `BusinessAddress` TEXT');if(!names.has('Active'))adds.push('ADD COLUMN `Active` TINYINT(1) NOT NULL DEFAULT 1');if(adds.length)await pool.query('ALTER TABLE `vendor_extra` '+adds.join(', '))}catch{}
+    const [rows]=await pool.query('SELECT * FROM `vendor_extra` WHERE `Name`=?',[name]);
+    ok(res,{name,extra:(rows&&rows[0])||null})
+  }catch(e){json(res,500,{error:String(e&&e.message||e)})}
+  return
+}
+if(url.pathname==='/api/vendor/extended'&&req.method==='PUT'){
+  const name=(url.searchParams.get('name')||'').trim();
+  if(!name)return bad(res,'missing name');
+  const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
+    try{
+      const body=Buffer.concat(chunks).toString('utf8')||'{}';
+      const payload=JSON.parse(body||'{}');
+      const extra=payload&&payload.extra||{};
+      const pool=await ensurePool();
+      await pool.query('CREATE TABLE IF NOT EXISTS `vendor_derived` (id BIGINT AUTO_INCREMENT PRIMARY KEY, `Name` VARCHAR(255) NOT NULL, `Contact` TEXT, `Phone` TEXT, `Email` TEXT, `Website` TEXT, `Remarks` TEXT, UNIQUE KEY `uniq_name` (`Name`)) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+      await pool.query('INSERT IGNORE INTO `vendor_derived` (`Name`) VALUES (?)',[name]);
+      await pool.query('CREATE TABLE IF NOT EXISTS `vendor_extra` ( `Name` VARCHAR(255) PRIMARY KEY, `Address` TEXT, `BusinessAddress` TEXT, `Contact` TEXT, `Phone` TEXT, `Fax` TEXT, `Email` TEXT, `Website` TEXT, `Currency` TEXT, `PaymentTerms` TEXT, `TaxingScheme` TEXT, `Carrier` TEXT, `Remarks` TEXT, `Active` TINYINT(1) NOT NULL DEFAULT 1 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+      try{const [cols]=await pool.query('SHOW COLUMNS FROM `vendor_extra`');const names=new Set((cols||[]).map(c=>c.Field));const adds=[];if(!names.has('BusinessAddress'))adds.push('ADD COLUMN `BusinessAddress` TEXT');if(!names.has('Active'))adds.push('ADD COLUMN `Active` TINYINT(1) NOT NULL DEFAULT 1');if(adds.length)await pool.query('ALTER TABLE `vendor_extra` '+adds.join(', '))}catch{}
+      const cols=['Address','BusinessAddress','Contact','Phone','Fax','Email','Website','Currency','PaymentTerms','TaxingScheme','Carrier','Remarks','Active'];
+      const active=(extra.Active==null?1:(extra.Active?1:0));
+      const vals=cols.map(k=>k==='Active'?active:(extra[k]??null));
+      const placeholders=cols.map(()=>'?').join(',');
+      const updates=cols.map(k=>'`'+k+'`=VALUES(`'+k+'`)').join(',');
+      await pool.query('INSERT INTO `vendor_extra` (`Name`,'+cols.map(c=>'`'+c+'`').join(',')+') VALUES (?, '+placeholders+') ON DUPLICATE KEY UPDATE '+updates,[name,...vals]);
+      ok(res,{ok:true})
+    }catch(e){json(res,400,{error:String(e&&e.message||e)})}
+  });
   return
 }
 if(url.pathname==='/api/customer/extended'&&req.method==='GET'){

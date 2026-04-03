@@ -1,5 +1,37 @@
 const API_BASE=(location.protocol==='file:'? 'http://localhost:3201' : '')
 function api(path){return API_BASE+path}
+let __toastHost=null
+function __ensureToastHost(){
+  if(__toastHost&&document.body.contains(__toastHost))return __toastHost
+  const host=document.createElement('div')
+  host.className='toast-host'
+  host.id='toast-host'
+  document.body.appendChild(host)
+  __toastHost=host
+  return host
+}
+function toast(message,type){
+  const msg=String(message||'').trim()
+  if(!msg)return
+  const host=__ensureToastHost()
+  const el=document.createElement('div')
+  el.className='toast'+(type?(' toast-'+type):'')
+  const text=document.createElement('div')
+  text.className='toast-msg'
+  text.textContent=msg
+  const x=document.createElement('button')
+  x.type='button'
+  x.className='icon-btn toast-x'
+  x.textContent='×'
+  x.setAttribute('aria-label','Dismiss')
+  x.addEventListener('click',()=>{try{el.remove()}catch{}})
+  el.addEventListener('click',e=>{if(e&&e.target===x)return;try{el.remove()}catch{}})
+  el.appendChild(text)
+  el.appendChild(x)
+  host.appendChild(el)
+  const ttl=(type==='error'?7000:(type==='warn'?5500:4000))
+  setTimeout(()=>{try{el.remove()}catch{}},ttl)
+}
 function applyTheme(t){document.body.classList.toggle('dark',t==='dark');try{localStorage.setItem('theme',t)}catch{};const themeBtn=document.getElementById('theme-btn');if(themeBtn)themeBtn.textContent=t==='dark'?'Light':'Dark'}
 function applyMode(m){
   document.body.classList.remove('mobile','desktop')
@@ -15,13 +47,8 @@ function applyMode(m){
 document.addEventListener('DOMContentLoaded',()=>{
   const themeBtn=document.getElementById('theme-btn')
   const modeBtn=document.getElementById('mode-btn')
-  const authBtnEl=document.getElementById('auth-btn')
   if(modeBtn)modeBtn.addEventListener('click',()=>{applyMode(document.body.classList.contains('mobile')?'desktop':'mobile')})
   if(themeBtn)themeBtn.addEventListener('click',()=>{applyTheme(document.body.classList.contains('dark')?'light':'dark');updateStickyTop()})
-  if(authBtnEl)authBtnEl.addEventListener('click',async()=>{
-    if(__authName){await doLogout();location.href='./login.html';return}
-    location.href='./login.html'
-  })
 })
 let mSaved=null;try{mSaved=localStorage.getItem('mode')}catch{};applyMode(mSaved||(window.innerWidth<=768?'mobile':'desktop'))
 let tSaved=null;try{tSaved=localStorage.getItem('theme')}catch{};applyTheme(tSaved||((window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light'))
@@ -47,6 +74,21 @@ function updateStickyTop(){
       const vh=tb&&tb.offsetHeight?tb.offsetHeight:52;
       sec.style.setProperty('--section-toolbar-height',vh+'px')
     })
+  }catch{}
+  try{
+    const sec=document.getElementById('section-vendor');
+    if(sec){
+      const r=sec.getBoundingClientRect();
+      const left=Math.floor(r.left+window.scrollX);
+      const width=Math.max(320,Math.floor(r.width));
+      document.documentElement.style.setProperty('--vendor-left',left+'px');
+      document.documentElement.style.setProperty('--vendor-width',width+'px');
+      const tb=sec.querySelector('.vendor-toolbar');
+      if(tb){
+        const vh=tb.offsetHeight||52;
+        document.documentElement.style.setProperty('--vendor-toolbar-height',vh+'px');
+      }
+    }
   }catch{}
 }
 window.addEventListener('load',updateStickyTop)
@@ -91,6 +133,47 @@ function __updatePOToolbarFix(){
 window.addEventListener('load',__updatePOToolbarFix)
 window.addEventListener('resize',__updatePOToolbarFix)
 window.addEventListener('scroll',__updatePOToolbarFix)
+let __vendorToolbarTick=0
+function __applyVendorToolbarFix(){
+  if(__currentSection!=='vendor')return
+  const sec=document.getElementById('section-vendor')
+  if(!sec)return
+  const tb=sec.querySelector('.vendor-toolbar')
+  if(!tb)return
+  try{updateStickyTop()}catch{}
+  const cs=getComputedStyle(document.documentElement)
+  let top=parseInt(String(cs.getPropertyValue('--sticky-vendor-top')||'60').trim(),10)
+  if(!Number.isFinite(top)||top<=0)top=60
+  const r=sec.getBoundingClientRect()
+  const left=Math.floor(r.left+window.scrollX)
+  const width=Math.max(320,Math.floor(r.width))
+  tb.style.position='fixed'
+  tb.style.top=top+'px'
+  tb.style.left=left+'px'
+  tb.style.width=width+'px'
+  tb.style.zIndex='910'
+  let sp=document.getElementById('vendor-toolbar-spacer')
+  if(!sp){sp=document.createElement('div');sp.id='vendor-toolbar-spacer';tb.parentNode.insertBefore(sp,tb.nextSibling)}
+  sp.style.height=(tb.offsetHeight||52)+'px'
+}
+function __clearVendorToolbarFix(){
+  const sec=document.getElementById('section-vendor')
+  if(!sec)return
+  const tb=sec.querySelector('.vendor-toolbar')
+  const sp=document.getElementById('vendor-toolbar-spacer')
+  if(tb){tb.style.position='';tb.style.top='';tb.style.left='';tb.style.width='';tb.style.zIndex=''}
+  if(sp)try{sp.remove()}catch{}
+}
+function __updateVendorToolbarFix(){
+  if(__currentSection!=='vendor'){__clearVendorToolbarFix();return}
+  const now=Date.now()
+  if(now-__vendorToolbarTick<60)return
+  __vendorToolbarTick=now
+  __applyVendorToolbarFix()
+}
+window.addEventListener('load',__updateVendorToolbarFix)
+window.addEventListener('resize',__updateVendorToolbarFix)
+window.addEventListener('scroll',__updateVendorToolbarFix)
 function __formatMoneyInputs(ids){
   const fmt=v=>{const n=Number(String(v||'').replace(/[^0-9.-]/g,''))||0;return n.toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}
   ids.forEach(id=>{const el=document.getElementById(id);if(!el)return;el.value=fmt(el.value)})
@@ -104,10 +187,43 @@ const navButtons=[...document.querySelectorAll('.nav-btn')]
 const sections=[...document.querySelectorAll('.section')]
 let __currentSection='dashboard'
 function __ensurePOFooter(){const receiveBtn=document.getElementById('po-receive-pay');const foot=document.getElementById('sticky-footer');const sect=document.getElementById('section-purchase-order');if(receiveBtn&&foot){try{if(receiveBtn.parentElement!==foot){foot.innerHTML='';foot.appendChild(receiveBtn)}foot.style.display='flex';const fh=foot.offsetHeight||0;try{document.documentElement.style.setProperty('--footer-height',fh+'px')}catch{};if(sect)sect.style.paddingBottom=(fh+12)+'px';if(typeof __poFitToScreen==='function')setTimeout(__poFitToScreen,0)}catch{}}}
-function showSection(id){__currentSection=id;sections.forEach(s=>s.classList.toggle('section-active',s.id===('section-'+id)));navButtons.forEach(b=>b.classList.toggle('active',b.dataset.section===id));try{history.replaceState(null,'','#section-'+id)}catch{};const foot=document.getElementById('sticky-footer');if(foot)foot.style.display=(id==='purchase-order'?'flex':'none');if(id==='inventory')initInventoryPage();if(id==='vendor')initVendorPage();if(id==='purchase-order'){initPurchaseOrderPage();__ensurePOFooter();setTimeout(__updatePOToolbarFix,0)}else{__clearPOToolbarFix()}if(id==='sales-order')initSalesOrderPage();if(id==='customer')initCustomerPage();const gs=document.getElementById('global-search');if(gs&&gs.value)applyGlobalSearch(gs.value)}
+function showSection(id){__currentSection=id;sections.forEach(s=>s.classList.toggle('section-active',s.id===('section-'+id)));navButtons.forEach(b=>b.classList.toggle('active',b.dataset.section===id));try{history.replaceState(null,'','#section-'+id)}catch{};const foot=document.getElementById('sticky-footer');if(foot)foot.style.display=(id==='purchase-order'?'flex':'none');if(id==='inventory')initInventoryPage();if(id==='vendor'){initVendorPage();setTimeout(__updateVendorToolbarFix,0);setTimeout(__lockVendorTitle,0)}else{__clearVendorToolbarFix()}if(id==='purchase-order'){initPurchaseOrderPage();__ensurePOFooter();setTimeout(__updatePOToolbarFix,0)}else{__clearPOToolbarFix()}if(id==='sales-order')initSalesOrderPage();if(id==='customer')initCustomerPage();const gs=document.getElementById('global-search');if(gs&&gs.value)applyGlobalSearch(gs.value)}
 navButtons.forEach(b=>b.addEventListener('click',(e)=>{e.preventDefault();showSection(b.dataset.section)}))
-// default to dashboard
-showSection('dashboard')
+function __afterSectionChange(id){
+  try{localStorage.setItem('lastSection',id)}catch{}
+  const label=(navButtons.find(b=>b.dataset.section===id)?.textContent||'IMS').trim()
+  try{document.title='IMS — '+label}catch{}
+  try{
+    navButtons.forEach(b=>{
+      const active=b.dataset.section===id
+      if(active)b.setAttribute('aria-current','page')
+      else b.removeAttribute('aria-current')
+    })
+  }catch{}
+  const main=document.getElementById('main-content')
+  if(main)try{main.focus({preventScroll:true})}catch{try{main.focus()}catch{}}
+}
+const __origShowSection=showSection
+showSection=function(id){__origShowSection(id);__afterSectionChange(id)}
+function __resolveInitialSection(){
+  let id='dashboard'
+  try{
+    const h=String(location.hash||'')
+    const m=/^#section-([a-z0-9-]+)/i.exec(h)
+    if(m&&m[1])id=m[1]
+    else{
+      const saved=localStorage.getItem('lastSection')
+      if(saved)id=saved
+    }
+  }catch{}
+  if(!sections.some(s=>s.id===('section-'+id)))id='dashboard'
+  return id
+}
+showSection(__resolveInitialSection())
+window.addEventListener('hashchange',()=>{
+  const id=__resolveInitialSection()
+  if(id!==__currentSection)showSection(id)
+})
 const tbl=document.getElementById('table')
 const file=document.getElementById('file')
 const btn=document.getElementById('import')
@@ -216,7 +332,7 @@ function __printStatement(stmt,targetWindow){
 }
 async function openStatementOfAccount(partyType,name){
   const cleanName=String(name||'').trim()
-  if(!cleanName){alert('Select a '+(partyType==='customer'?'customer':'vendor')+' first');return}
+  if(!cleanName){toast('Select a '+(partyType==='customer'?'customer':'vendor')+' first','warn');return}
   const toDefault=__fmtYmd(new Date())
   const fromDt=new Date();fromDt.setDate(fromDt.getDate()-90)
   const fromDefault=__fmtYmd(fromDt)
@@ -273,6 +389,11 @@ if(authBtnEl)authBtnEl.addEventListener('click',async()=>{
 })
 refreshAuthUI()
 const globalSearchEl=document.getElementById('global-search')
+const globalSearchClearBtn=document.getElementById('global-search-clear')
+function __syncGlobalSearchClear(){
+  if(!globalSearchClearBtn)return
+  globalSearchClearBtn.hidden=!(globalSearchEl&&String(globalSearchEl.value||'').length>0)
+}
 function applyGlobalSearch(q){
   const v=String(q||'')
   function setInput(id,val){
@@ -291,7 +412,45 @@ function applyGlobalSearch(q){
 if(globalSearchEl){
   globalSearchEl.addEventListener('input',()=>applyGlobalSearch(globalSearchEl.value))
   globalSearchEl.addEventListener('keydown',(e)=>{if(e.key==='Escape'){globalSearchEl.value='';applyGlobalSearch('')}})
+  __syncGlobalSearchClear()
+  globalSearchEl.addEventListener('input',__syncGlobalSearchClear)
 }
+if(globalSearchClearBtn){
+  globalSearchClearBtn.addEventListener('click',()=>{
+    if(!globalSearchEl)return
+    globalSearchEl.value=''
+    try{globalSearchEl.dispatchEvent(new Event('input',{bubbles:true}))}catch{}
+    try{globalSearchEl.focus()}catch{}
+  })
+}
+function __isTypingTarget(el){
+  if(!el)return false
+  if(el.isContentEditable)return true
+  const t=String(el.tagName||'').toUpperCase()
+  return t==='INPUT'||t==='TEXTAREA'||t==='SELECT'
+}
+document.addEventListener('keydown',e=>{
+  if(!e)return
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&String(e.key||'').toLowerCase()==='k'){
+    if(globalSearchEl){e.preventDefault();try{globalSearchEl.focus()}catch{}}
+    return
+  }
+  if(e.key==='/'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.shiftKey&&!__isTypingTarget(e.target)){
+    if(globalSearchEl){e.preventDefault();try{globalSearchEl.focus()}catch{}}
+    return
+  }
+  if(e.key==='Escape'&&globalSearchEl&&document.activeElement===globalSearchEl){
+    globalSearchEl.value=''
+    applyGlobalSearch('')
+    __syncGlobalSearchClear()
+    return
+  }
+  if(e.key==='F1'){
+    e.preventDefault()
+    showSection('help')
+    return
+  }
+})
 async function importCSV(){const name=(tbl.value||'').trim();if(!name){statusEl.textContent='Enter table name';return}if(!file.files||!file.files[0]){statusEl.textContent='Choose a CSV file';return}const text=await file.files[0].text();statusEl.textContent='Uploading...';const r=await fetch(api('/api/import?table='+encodeURIComponent(name)),{method:'PUT',headers:{'Content-Type':'text/plain'},body:text});const j=await r.json().catch(()=>({}));statusEl.textContent=r.ok?('Imported '+(j.rows||0)+' rows into '+name):('Error: '+(j.error||r.status)) ;browseTable.value=name;loadData()}
 if(btn)btn.addEventListener('click',importCSV)
 async function loadData(){const name=(browseTable.value||'').trim();if(!name){schemaEl.textContent='';dataEl.textContent='';return}const s=await fetch(api('/api/schema?table='+encodeURIComponent(name)));const sj=await s.json().catch(()=>({}));schemaEl.textContent=s.ok?('Columns: '+(sj.schema||[]).join(', ')):('Schema error: '+(sj.error||s.status));const d=await fetch(api('/api/data?table='+encodeURIComponent(name)+'&limit=200'));const dj=await d.json().catch(()=>({}));if(!d.ok){dataEl.textContent='Data error: '+(dj.error||d.status);return}const rows=dj.rows||[];if(!rows.length){dataEl.textContent='No rows';return}const cols=Object.keys(rows[0]||{});const table=document.createElement('table');const thead=document.createElement('thead');const trh=document.createElement('tr');cols.forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});thead.appendChild(trh);table.appendChild(thead);const tbody=document.createElement('tbody');rows.forEach(r=>{const tr=document.createElement('tr');cols.forEach(k=>{const td=document.createElement('td');td.textContent=String(r[k]??'');tr.appendChild(td)});tbody.appendChild(tr)});table.appendChild(tbody);dataEl.innerHTML='';dataEl.appendChild(table)}
@@ -1042,7 +1201,7 @@ function bindCustomerAndOrders(row){bindCustomer(row);const name=pick(row,['Name
 function syncCustomerAddressUI(){const sel=document.getElementById('c-address-type');const ta=document.getElementById('c-address');if(!sel||!ta)return;const type=(sel.value||sel.options[sel.selectedIndex]?.text||'Business Address').toLowerCase();if(type.startsWith('shipping'))ta.value=__cAddr.shipping||'';else ta.value=__cAddr.business||''}
 async function loadCustomerExtended(name){if(!name)return;try{const r=await fetch(api('/api/customer/extended?name='+encodeURIComponent(name)));const j=await r.json().catch(()=>({}));if(j&&j.extra){const x=j.extra;__cAddr.business=String((x.BusinessAddress??x.Address??'')||'');__cAddr.shipping=String((x.ShipToAddress??'')||'');[['c-contact','Contact'],['c-phone','Phone'],['c-fax','Fax'],['c-email','Email'],['c-website','Website'],['c-currency','Currency'],['c-discount','Discount'],['c-terms','PaymentTerms'],['c-tax','TaxingScheme'],['c-tax-exempt','TaxExempt'],['c-remarks','Remarks']].forEach(([id,key])=>{const el=document.getElementById(id);if(el)el.value=(x[key]!=null?String(x[key]):el.value)});syncCustomerAddressUI()}}catch{}}
 function gatherCustomerPayload(){const sel=document.getElementById('c-address-type');const ta=document.getElementById('c-address');if(sel&&ta){const type=(sel.value||sel.options[sel.selectedIndex]?.text||'Business Address').toLowerCase();if(type.startsWith('shipping'))__cAddr.shipping=ta.value;else __cAddr.business=ta.value}return {extra:{BusinessAddress:__cAddr.business||null,ShipToAddress:__cAddr.shipping||null,Address:__cAddr.business||null,Contact:document.getElementById('c-contact')?.value||null,Phone:document.getElementById('c-phone')?.value||null,Fax:document.getElementById('c-fax')?.value||null,Email:document.getElementById('c-email')?.value||null,Website:document.getElementById('c-website')?.value||null,Currency:document.getElementById('c-currency')?.value||null,Discount:document.getElementById('c-discount')?.value||null,PaymentTerms:document.getElementById('c-terms')?.value||null,TaxingScheme:document.getElementById('c-tax')?.value||null,TaxExempt:document.getElementById('c-tax-exempt')?.value||null,Remarks:document.getElementById('c-remarks')?.value||null}}}
-async function saveCustomer(){const name=document.getElementById('c-name')?.value||'';if(!name)return;const payload=gatherCustomerPayload();const r=await fetch(api('/api/customer/extended?name='+encodeURIComponent(name)),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const jr=await r.json().catch(()=>({}));if(jr&&jr.ok===false&&jr.error){alert(jr.error)}}
+async function saveCustomer(){const name=document.getElementById('c-name')?.value||'';if(!name)return;const payload=gatherCustomerPayload();const r=await fetch(api('/api/customer/extended?name='+encodeURIComponent(name)),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const jr=await r.json().catch(()=>({}));if(!r.ok||(jr&&jr.ok===false&&jr.error)){toast(String(jr&&jr.error||'Unable to save customer'),'error');return}toast('Customer saved','success')}
 async function initCustomerPage(){
   const stmt=document.getElementById('customer-statement')
   if(stmt&&!stmt.dataset.bound){
@@ -1183,10 +1342,10 @@ function ensureTrack(it){if(!it.track)it.track={type:'None',serials:[],lots:[]}}
 function qtyReceivedFromTrack(it){ensureTrack(it);if(it.track.type==='Serial'){return (it.track.serials||[]).length}else if(it.track.type==='Lot'){return (it.track.lots||[]).reduce((s,x)=>s+parseNum(x.qty),0)}return 0}
 function updatePOReceiveTotals(){const items=__poItemMap.get(__poCurrentKey)||[];let recv=0;items.forEach(it=>{recv+=qtyReceivedFromTrack(it)});const el=document.getElementById('po-adv-q-received');if(el)el.textContent=String(recv)}
 async function renderReceiveTrackingPanel(){const items=__poItemMap.get(__poCurrentKey)||[];const idx=__poSelectedIndex>=0?__poSelectedIndex:0;const it=items[idx];if(!it)return;ensureTrack(it);await __poEnsureInventory();try{if((it.track.type||'None')==='None'){const invRow=__poFindInvRowBy(it.item,it.barcode);const t=__poInferTrackingType(invRow);it.track.type=t||'None'}}catch{}const typeSel=document.getElementById('po-adv-track-type');const serialPanel=document.getElementById('po-adv-serial-panel');const lotPanel=document.getElementById('po-adv-lot-panel');if(typeSel){typeSel.value=it.track.type||'None';typeSel.onchange=()=>{it.track.type=typeSel.value;serialPanel.style.display=(it.track.type==='Serial')?'block':'none';lotPanel.style.display=(it.track.type==='Lot')?'block':'none';updatePOReceiveTotals()};serialPanel.style.display=(it.track.type==='Serial')?'block':'none';lotPanel.style.display=(it.track.type==='Lot')?'block':'none'}const sAdd=document.getElementById('po-adv-serial-add');const sDel=document.getElementById('po-adv-serial-del');const sScan=document.getElementById('po-adv-serial-scan');const sList=document.getElementById('po-adv-serial-list');const renderSerials=()=>{if(!sList)return;sList.innerHTML='';const table=document.createElement('table');const thead=document.createElement('thead');const trh=document.createElement('tr');['Serial'].forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});thead.appendChild(trh);table.appendChild(thead);const tbody=document.createElement('tbody');(it.track.serials||[]).forEach((sn,i)=>{const tr=document.createElement('tr');tr.dataset.index=String(i);const td=document.createElement('td');td.textContent=sn;tr.appendChild(td);tr.addEventListener('click',()=>{document.querySelectorAll('#po-adv-serial-list tr').forEach(r=>r.classList.remove('active'));tr.classList.add('active');sList.dataset.sel=String(i)});tbody.appendChild(tr)});table.appendChild(tbody);sList.appendChild(table)};if(sAdd)sAdd.onclick=()=>{const v=(sScan&&sScan.value||'').trim();if(v){if(!it.track.serials.includes(v))it.track.serials.push(v);sScan.value='';renderSerials();updatePOReceiveTotals()}};if(sScan)sScan.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sAdd&&sAdd.click()}});if(sDel)sDel.onclick=()=>{const sel=Number(sList&&sList.dataset.sel||'-1');if(sel>=0){it.track.serials.splice(sel,1);delete sList.dataset.sel;renderSerials();updatePOReceiveTotals()}};renderSerials();const lotTable=document.getElementById('po-adv-lot-table');const lotAdd=document.getElementById('po-adv-lot-add');const lotDel=document.getElementById('po-adv-lot-del');const lotFefo=document.getElementById('po-adv-lot-fefo');const fefoStatus=document.getElementById('po-adv-fefo');const renderLots=()=>{if(!lotTable)return;lotTable.innerHTML='';const table=document.createElement('table');const thead=document.createElement('thead');const trh=document.createElement('tr');['Lot','MFG Date','EXP Date','Qty (PU)','Selected'].forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});thead.appendChild(trh);table.appendChild(thead);const tbody=document.createElement('tbody');let expCount=0,soonCount=0;(it.track.lots||[]).forEach((x,i)=>{const tr=document.createElement('tr');tr.dataset.index=String(i);function tdInput(val,ph,cb,opts){const td=document.createElement('td');const inp=document.createElement('input');inp.className='inp';inp.value=val||'';if(ph)inp.placeholder=ph;Object.assign(inp,opts||{});inp.addEventListener('input',()=>{cb(inp.value);highlight()});td.appendChild(inp);return td}const highlight=()=>{try{const now=new Date();const soonMs=30*24*60*60*1000;const expDate=x.exp?new Date(x.exp):null;if(expDate instanceof Date&&!isNaN(expDate)){const diff=expDate.getTime()-now.getTime();if(diff<0){tr.style.background='#ffe6e6';expCount++}else if(diff<=soonMs){tr.style.background='#fff5e6';soonCount++}else{tr.style.background=''}}}catch{}};tr.appendChild(tdInput(x.lot||'','LOT',v=>{x.lot=v}));tr.appendChild(tdInput(x.mfg||'','YYYY-MM-DD',v=>{x.mfg=v},{type:'date'}));tr.appendChild(tdInput(x.exp||'','YYYY-MM-DD',v=>{x.exp=v;highlight()},{type:'date'}));tr.appendChild(tdInput(String(x.qty||'0'),'0',v=>{x.qty=v},{type:'number',min:'0',step:'1'}));const tdSel=document.createElement('td');tdSel.textContent='';tr.appendChild(tdSel);tr.addEventListener('click',()=>{document.querySelectorAll('#po-adv-lot-table tr').forEach(r=>r.classList.remove('active'));tr.classList.add('active');lotTable.dataset.sel=String(i)});highlight();tbody.appendChild(tr)});table.appendChild(tbody);lotTable.appendChild(table);fefoStatus.textContent=(expCount||soonCount)?(`Warnings — Expired: ${expCount}, Expiring soon (≤30d): ${soonCount}`):'';updatePOReceiveTotals()};if(lotAdd)lotAdd.onclick=()=>{it.track.lots.push({lot:'',mfg:'',exp:'',qty:'0'});renderLots()};if(lotDel)lotDel.onclick=()=>{const sel=Number(lotTable&&lotTable.dataset.sel||'-1');if(sel>=0){it.track.lots.splice(sel,1);delete lotTable.dataset.sel;renderLots()}};if(lotFefo)lotFefo.onclick=()=>{const lots=[...(it.track.lots||[])];lots.sort((a,b)=>{const da=a.exp?new Date(a.exp):null;const db=b.exp?new Date(b.exp):null;const na=da?da.getTime():Number.MAX_SAFE_INTEGER;const nb=db?db.getTime():Number.MAX_SAFE_INTEGER;return na-nb});const first=lots[0];fefoStatus.textContent=first&&first.exp?('Suggest pick oldest EXP: '+first.lot+' (exp '+first.exp+')'):'No EXP dates set';};renderLots()}
-let __poLotObs=null;function __bindPOLotObserver(){try{const host=document.getElementById('po-adv-lot-table');if(!host){setTimeout(__bindPOLotObserver,300);return}if(__poLotObs){try{__poLotObs.disconnect()}catch{};__poLotObs=null}const attach=()=>{try{host.querySelectorAll('tbody tr').forEach(tr=>{if(tr.dataset.enforced)return;tr.dataset.enforced='1';const expInp=tr.querySelector('td:nth-child(3) input.inp');const qtyInp=tr.querySelector('td:nth-child(4) input.inp');const enforce=()=>{try{const items=__poItemMap.get(__poCurrentKey)||[];const idx=__poSelectedIndex>=0?__poSelectedIndex:0;const it=items[idx];const invRow=it?__poFindInvRowBy(it.item,it.barcode):null;const requireExp=invRow&&__poInvRequiresExpiration(invRow);const expVal=expInp&&expInp.value;const qtyVal=qtyInp&&qtyInp.value;const qv=qtyVal?Number(qtyVal):0;if(requireExp){const d=expVal?new Date(expVal):null;if(!(d instanceof Date)||isNaN(d)){if(qv>0){alert('Expiration date is required for this item.');qtyInp.value='0';qtyInp.dispatchEvent(new Event('input',{bubbles:true}));return}}}if(!expVal)return;const expDate=new Date(expVal);if(!(expDate instanceof Date)||isNaN(expDate))return;const now=new Date();if(expDate.getTime()<now.getTime()){if(qv>0){const ok=confirm('Selected lot is past expiration. Keep the quantity anyway?');if(!ok){qtyInp.value='0';qtyInp.dispatchEvent(new Event('input',{bubbles:true}))}}}}catch{}};if(expInp)expInp.addEventListener('blur',enforce);if(qtyInp)qtyInp.addEventListener('blur',enforce);enforce()})}catch{}};__poLotObs=new MutationObserver(()=>attach());__poLotObs.observe(host,{childList:true,subtree:true});attach()}catch{}}
-let __poSerialObs=null;function __bindPOSerialObserver(){try{const host=document.getElementById('po-adv-serial-panel');if(!host){setTimeout(__bindPOSerialObserver,300);return}if(__poSerialObs){try{__poSerialObs.disconnect()}catch{};__poSerialObs=null}const attach=()=>{try{const sAdd=document.getElementById('po-adv-serial-add');const sScan=document.getElementById('po-adv-serial-scan');if(!sAdd)return;sAdd.onclick=()=>{try{const items=__poItemMap.get(__poCurrentKey)||[];const idx=__poSelectedIndex>=0?__poSelectedIndex:0;const it=items[idx];if(!it)return;ensureTrack(it);const v=(sScan&&sScan.value||'').trim();if(!v)return;const exists=(it.track.serials||[]).some(s=>String(s||'').trim().toLowerCase()===v.toLowerCase());if(exists){alert('Duplicate serial: '+v);sScan.value='';return}const ordered=parseNum(it.qty);const current=(it.track.serials||[]).length;const will=current+1;if(ordered&&will>ordered){const ok=confirm('Serial count exceeds ordered quantity. Continue?');if(!ok){sScan.value='';return}}it.track.serials.push(v);sScan.value='';try{updatePOReceiveTotals()}catch{};const sList=document.getElementById('po-adv-serial-list');if(sList){sList.innerHTML=''}try{renderReceiveTrackingPanel()}catch{}}catch{}}}catch{}};__poSerialObs=new MutationObserver(()=>attach());__poSerialObs.observe(host,{childList:true,subtree:true});attach()}catch{}}
+let __poLotObs=null;function __bindPOLotObserver(){try{const host=document.getElementById('po-adv-lot-table');if(!host){setTimeout(__bindPOLotObserver,300);return}if(__poLotObs){try{__poLotObs.disconnect()}catch{};__poLotObs=null}const attach=()=>{try{host.querySelectorAll('tbody tr').forEach(tr=>{if(tr.dataset.enforced)return;tr.dataset.enforced='1';const expInp=tr.querySelector('td:nth-child(3) input.inp');const qtyInp=tr.querySelector('td:nth-child(4) input.inp');const enforce=()=>{try{const items=__poItemMap.get(__poCurrentKey)||[];const idx=__poSelectedIndex>=0?__poSelectedIndex:0;const it=items[idx];const invRow=it?__poFindInvRowBy(it.item,it.barcode):null;const requireExp=invRow&&__poInvRequiresExpiration(invRow);const expVal=expInp&&expInp.value;const qtyVal=qtyInp&&qtyInp.value;const qv=qtyVal?Number(qtyVal):0;if(requireExp){const d=expVal?new Date(expVal):null;if(!(d instanceof Date)||isNaN(d)){if(qv>0){toast('Expiration date is required for this item.','warn');qtyInp.value='0';qtyInp.dispatchEvent(new Event('input',{bubbles:true}));return}}}if(!expVal)return;const expDate=new Date(expVal);if(!(expDate instanceof Date)||isNaN(expDate))return;const now=new Date();if(expDate.getTime()<now.getTime()){if(qv>0){const ok=confirm('Selected lot is past expiration. Keep the quantity anyway?');if(!ok){qtyInp.value='0';qtyInp.dispatchEvent(new Event('input',{bubbles:true}))}}}}catch{}};if(expInp)expInp.addEventListener('blur',enforce);if(qtyInp)qtyInp.addEventListener('blur',enforce);enforce()})}catch{}};__poLotObs=new MutationObserver(()=>attach());__poLotObs.observe(host,{childList:true,subtree:true});attach()}catch{}}
+let __poSerialObs=null;function __bindPOSerialObserver(){try{const host=document.getElementById('po-adv-serial-panel');if(!host){setTimeout(__bindPOSerialObserver,300);return}if(__poSerialObs){try{__poSerialObs.disconnect()}catch{};__poSerialObs=null}const attach=()=>{try{const sAdd=document.getElementById('po-adv-serial-add');const sScan=document.getElementById('po-adv-serial-scan');if(!sAdd)return;sAdd.onclick=()=>{try{const items=__poItemMap.get(__poCurrentKey)||[];const idx=__poSelectedIndex>=0?__poSelectedIndex:0;const it=items[idx];if(!it)return;ensureTrack(it);const v=(sScan&&sScan.value||'').trim();if(!v)return;const exists=(it.track.serials||[]).some(s=>String(s||'').trim().toLowerCase()===v.toLowerCase());if(exists){toast('Duplicate serial: '+v,'warn');sScan.value='';return}const ordered=parseNum(it.qty);const current=(it.track.serials||[]).length;const will=current+1;if(ordered&&will>ordered){const ok=confirm('Serial count exceeds ordered quantity. Continue?');if(!ok){sScan.value='';return}}it.track.serials.push(v);sScan.value='';try{updatePOReceiveTotals()}catch{};const sList=document.getElementById('po-adv-serial-list');if(sList){sList.innerHTML=''}try{renderReceiveTrackingPanel()}catch{}}catch{}}}catch{}};__poSerialObs=new MutationObserver(()=>attach());__poSerialObs.observe(host,{childList:true,subtree:true});attach()}catch{}}
 function __poNumberExists(y,num){try{if(!num)return false;const year=String(y);return (__poRows||[]).some(r=>{const n=__extractPONumber(r);if(!n)return false;const dv=pick(r,['Date','OrderDate']);const d=dv?new Date(dv):null;const ry=(d&&d.toString()!=='Invalid Date')?String(d.getFullYear()):'';return n===num && ry===year})}catch{return false}}
-function __bindPOSaveButton(){try{const act=document.querySelector('#section-purchase-order .vendor-actions');if(!act)return;const btn=[...act.querySelectorAll('button')].find(b=>/^\s*Save\s*$/i.test(b.textContent||''));if(btn&&!btn.dataset.bound){btn.dataset.bound='1';btn.addEventListener('click',e=>{try{const numEl=document.getElementById('po-number');const dateEl=document.getElementById('po-date');const y=(dateEl&&dateEl.value)?(new Date(dateEl.value)).getFullYear():new Date().getFullYear();let num=(numEl&&numEl.value||'').trim();if(!num){num=__poNextNumber()}else{if(__poNumberExists(y,num)){const keep=confirm('Duplicate PO number exists this year. Keep anyway?');if(!keep){let candidate=num;let guard=0;do{candidate=__poNextNumber();guard++}while(__poNumberExists(y,candidate)&&guard<50);num=candidate}}}if(numEl)numEl.value=num;alert('PO number set to '+num)}catch{}})}}catch{}}
+function __bindPOSaveButton(){try{const act=document.querySelector('#section-purchase-order .vendor-actions');if(!act)return;const btn=[...act.querySelectorAll('button')].find(b=>/^\s*Save\s*$/i.test(b.textContent||''));if(btn&&!btn.dataset.bound){btn.dataset.bound='1';btn.addEventListener('click',e=>{try{const numEl=document.getElementById('po-number');const dateEl=document.getElementById('po-date');const y=(dateEl&&dateEl.value)?(new Date(dateEl.value)).getFullYear():new Date().getFullYear();let num=(numEl&&numEl.value||'').trim();if(!num){num=__poNextNumber()}else{if(__poNumberExists(y,num)){const keep=confirm('Duplicate PO number exists this year. Keep anyway?');if(!keep){let candidate=num;let guard=0;do{candidate=__poNextNumber();guard++}while(__poNumberExists(y,candidate)&&guard<50);num=candidate}}}if(numEl)numEl.value=num;toast('PO number set to '+num,'success')}catch{}})}}catch{}}
 function __bindPOCopyNumber(){try{const el=document.getElementById('po-number');if(!el||el.dataset.copybound)return;el.dataset.copybound='1';el.addEventListener('dblclick',async()=>{const s=el.value||'';try{await navigator.clipboard.writeText(s);el.title='Copied!';setTimeout(()=>{el.title=''},1000)}catch{try{el.select();document.execCommand('copy');el.blur();el.title='Copied!';setTimeout(()=>{el.title=''},1000)}catch{}}})}catch{}}
 
 function __applyPOTrackingFromInventory(){try{const typeSel=document.getElementById('po-adv-track-type');const serialPanel=document.getElementById('po-adv-serial-panel');const lotPanel=document.getElementById('po-adv-lot-panel');if(!typeSel||!serialPanel||!lotPanel){setTimeout(__applyPOTrackingFromInventory,300);return}const items=__poItemMap.get(__poCurrentKey)||[];const idx=__poSelectedIndex>=0?__poSelectedIndex:0;const it=items[idx];if(!it){setTimeout(__applyPOTrackingFromInventory,300);return}ensureTrack(it);const invRow=__poFindInvRowBy(it.item,it.barcode);const isNS=__poIsNonStock(invRow);if(isNS){typeSel.value='None';typeSel.disabled=true;serialPanel.style.display='none';lotPanel.style.display='none';typeSel.title='Non-stock/service item — tracking disabled'}else{typeSel.disabled=false;typeSel.title='';const t=it.track.type||'None';typeSel.value=t;serialPanel.style.display=(t==='Serial')?'block':'none';lotPanel.style.display=(t==='Lot')?'block':'none'}}catch{}}
@@ -1295,17 +1454,26 @@ function filterVendors(){
   renderVendorList(items);
 }
 async function initVendorPage(){
-  // tabs
-  document.querySelectorAll('#section-vendor .tab').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-      document.querySelectorAll('#section-vendor .tab').forEach(b=>b.classList.toggle('active',b===btn));
-      document.querySelectorAll('#section-vendor .tabpane').forEach(p=>p.classList.toggle('active',p.id==='vendor-tab-'+btn.dataset.tab));
+  const sec=document.getElementById('section-vendor')
+  if(sec&&!sec.dataset.tabsBound){
+    sec.dataset.tabsBound='1'
+    document.querySelectorAll('#section-vendor .tab').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        document.querySelectorAll('#section-vendor .tab').forEach(b=>b.classList.toggle('active',b===btn));
+        document.querySelectorAll('#section-vendor .tabpane').forEach(p=>p.classList.toggle('active',p.id==='vendor-tab-'+btn.dataset.tab));
+      })
     })
-  })
+  }
   const stmt=document.getElementById('vendor-statement')
   if(stmt&&!stmt.dataset.bound){
     stmt.dataset.bound='1'
     stmt.addEventListener('click',()=>openStatementOfAccount('vendor',document.getElementById('v-name')?.value||''))
+  }
+  if(sec&&!sec.dataset.filtersBound){
+    sec.dataset.filtersBound='1'
+    ;['vendor-q-name','vendor-q-contact','vendor-q-phone'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('input',filterVendors)})
+    const ref=document.getElementById('vendor-refresh');if(ref)ref.addEventListener('click',async()=>{__vendorLoaded=false;await initVendorPage()})
+    const imp=document.getElementById('vendor-import');if(imp)imp.addEventListener('click',async()=>{imp.disabled=true;imp.textContent='Importing...';try{const r=await fetch(api('/api/vendors/import-from-po'),{method:'POST'});const j=await r.json().catch(()=>({}));imp.textContent=r.ok?('Imported '+(j.added||0)):('Import Error');__vendorLoaded=false;await initVendorPage()}finally{imp.disabled=false;imp.textContent='Import From PO'}})
   }
   if(__vendorLoaded){filterVendors();return}
   try{
@@ -1318,10 +1486,6 @@ async function initVendorPage(){
     __vendors=dj.rows||[];
     __vendorSource=source;
     __vendorLoaded=true;
-    // wire filters
-    ['vendor-q-name','vendor-q-contact','vendor-q-phone'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('input',filterVendors)})
-    const ref=document.getElementById('vendor-refresh');if(ref)ref.addEventListener('click',async()=>{__vendorLoaded=false;await initVendorPage()})
-    const imp=document.getElementById('vendor-import');if(imp)imp.addEventListener('click',async()=>{imp.disabled=true;imp.textContent='Importing...';try{const r=await fetch(api('/api/vendors/import-from-po'),{method:'POST'});const j=await r.json().catch(()=>({}));imp.textContent=r.ok?('Imported '+(j.added||0)):('Import Error');await initVendorPage()}finally{imp.disabled=false;imp.textContent='Import From PO'}})
     const setDL=(id,values)=>{const dl=document.getElementById(id);if(!dl)return;dl.innerHTML='';[...values].sort((a,b)=>String(a).localeCompare(String(b))).slice(0,200).forEach(v=>{const opt=document.createElement('option');opt.value=String(v);dl.appendChild(opt)})}
     const sTerms=new Set(),sTax=new Set(),sCarrier=new Set(),sCurr=new Set();
     __vendors.forEach(r=>{const t=String(pick(r,['PaymentTerms','Terms'])||'').trim();if(t)sTerms.add(t);const tx=String(pick(r,['TaxingScheme','TaxCode'])||'').trim();if(tx)sTax.add(tx);const c=String(pick(r,['Carrier','ShippingCarrier'])||'').trim();if(c)sCarrier.add(c);const cu=String(pick(r,['Currency'])||'').trim();if(cu)sCurr.add(cu)});
@@ -1396,4 +1560,210 @@ function delInvLocRow(){const rows=__invLocMap.get(__invCurrentKey)||[];if(__inv
 function loadInventoryPicture(){const img=document.getElementById('inv-pic-preview');const empty=document.getElementById('inv-pic-empty');try{const key='inv_pic_'+__invCurrentKey;const src=localStorage.getItem(key);if(src){img.src=src;img.style.display='inline-block';if(empty)empty.style.display='none'}else{img.removeAttribute('src');img.style.display='none';if(empty)empty.style.display='block'}}catch{}}
 function browseInventoryPicture(){const picker=document.createElement('input');picker.type='file';picker.accept='image/*';picker.style.display='none';picker.addEventListener('change',()=>{if(picker.files&&picker.files[0]){const f=picker.files[0];const reader=new FileReader();reader.onload=e=>{try{localStorage.setItem('inv_pic_'+__invCurrentKey,e.target.result)}catch{};loadInventoryPicture()};reader.readAsDataURL(f)}});document.body.appendChild(picker);picker.click();setTimeout(()=>{try{document.body.removeChild(picker)}catch{}},1000)}
 function clearInventoryPicture(){try{localStorage.removeItem('inv_pic_'+__invCurrentKey)}catch{};loadInventoryPicture()}
+
+try{
+  if(!window.__vendorUX){
+    window.__vendorUX={selectedName:'',active:1,flags:new Map(),bound:false,loadedFlags:false}
+  }
+}catch{}
+function __vendorUXLc(v){return String(v||'').trim().toLowerCase()}
+function __vendorUXSetTitle(name){
+  const el=document.querySelector('#section-vendor .vendor-title')
+  if(!el)return
+  const clean=String(name||'').trim()
+  el.textContent='Vendor'
+}
+let __vendorTitleObserver=null
+function __lockVendorTitle(){
+  const el=document.querySelector('#section-vendor .vendor-title')
+  if(!el)return
+  el.textContent='Vendor'
+  try{
+    if(__vendorTitleObserver){__vendorTitleObserver.disconnect()}
+    __vendorTitleObserver=new MutationObserver(()=>{if(el.textContent!=='Vendor')el.textContent='Vendor'})
+    __vendorTitleObserver.observe(el,{characterData:true,childList:true,subtree:true})
+  }catch{}
+}
+async function __vendorUXLoadFlags(){
+  try{
+    const r=await fetch(api('/api/vendor/flags'))
+    const j=await r.json().catch(()=>({}))
+    const map=new Map()
+    for(const f of (j&&j.flags)||[]){
+      const n=__vendorUXLc(f&&f.Name)
+      if(!n)continue
+      map.set(n,(f&&Number(f.Active))?1:0)
+    }
+    if(window.__vendorUX){window.__vendorUX.flags=map;window.__vendorUX.loadedFlags=true}
+  }catch{}
+}
+async function loadVendorExtended(name){
+  const nm=String(name||'').trim()
+  if(!nm)return
+  try{
+    const r=await fetch(api('/api/vendor/extended?name='+encodeURIComponent(nm)))
+    const j=await r.json().catch(()=>({}))
+    if(j&&j.extra){
+      const x=j.extra
+      if(window.__vendorUX){
+        window.__vendorUX.selectedName=nm
+        window.__vendorUX.active=(x.Active==null?window.__vendorUX.active:(Number(x.Active)?1:0))
+        window.__vendorUX.flags.set(__vendorUXLc(nm),window.__vendorUX.active?1:0)
+      }
+      ;[['v-address','BusinessAddress'],['v-contact','Contact'],['v-phone','Phone'],['v-fax','Fax'],['v-email','Email'],['v-website','Website'],['v-currency','Currency'],['v-terms','PaymentTerms'],['v-tax','TaxingScheme'],['v-carrier','Carrier'],['v-remarks','Remarks']].forEach(([id,key])=>{const el=document.getElementById(id);if(el&&x[key]!=null)el.value=String(x[key])})
+      __vendorUXSetTitle(nm)
+    }
+  }catch{}
+}
+function __vendorUXPayload(){
+  const nm=(document.getElementById('v-name')?.value||'').trim()
+  const address=document.getElementById('v-address')?.value||null
+  const active=(window.__vendorUX&&window.__vendorUX.active)?1:0
+  return {name:nm,extra:{Address:address,BusinessAddress:address,Contact:document.getElementById('v-contact')?.value||null,Phone:document.getElementById('v-phone')?.value||null,Fax:document.getElementById('v-fax')?.value||null,Email:document.getElementById('v-email')?.value||null,Website:document.getElementById('v-website')?.value||null,Currency:document.getElementById('v-currency')?.value||null,PaymentTerms:document.getElementById('v-terms')?.value||null,TaxingScheme:document.getElementById('v-tax')?.value||null,Carrier:document.getElementById('v-carrier')?.value||null,Remarks:document.getElementById('v-remarks')?.value||null,Active:active}}
+}
+function __vendorUXClearForm(){
+  ;['v-name','v-balance','v-address','v-contact','v-phone','v-fax','v-email','v-website','v-terms','v-tax','v-carrier','v-currency','v-remarks'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='' })
+  if(window.__vendorUX){window.__vendorUX.selectedName='';window.__vendorUX.active=1}
+  __vendorUXSetTitle('New Vendor')
+  const orders=document.getElementById('vendor-orders');if(orders)orders.textContent='Select a vendor to view order history'
+  const prods=document.getElementById('vendor-products');if(prods)prods.textContent='Select a vendor to view products'
+}
+function __vendorUXSelectByName(name){
+  const lc=__vendorUXLc(name)
+  const items=[...document.querySelectorAll('#vendor-list .vendor-item')]
+  const el=items.find(x=>__vendorUXLc(x.dataset.name||x.textContent||'')===lc)
+  if(el){el.click();try{el.scrollIntoView({block:'nearest'})}catch{}}
+}
+async function saveVendor(){
+  const btn=document.getElementById('vendor-save')
+  const prev=btn?String(btn.textContent||'Save'):'Save'
+  const payload=__vendorUXPayload()
+  const nm=payload.name
+  if(!nm){toast('Vendor name is required','warn');return}
+  if(btn){btn.disabled=true;btn.textContent='Saving...'}
+  try{
+    const r=await fetch(api('/api/vendor/extended?name='+encodeURIComponent(nm)),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    const j=await r.json().catch(()=>({}))
+    if(!r.ok||(j&&j.ok===false&&j.error)){toast(String(j&&j.error||'Unable to save vendor'),'error');return}
+    if(window.__vendorUX){
+      window.__vendorUX.selectedName=nm
+      window.__vendorUX.flags.set(__vendorUXLc(nm),window.__vendorUX.active?1:0)
+    }
+    toast((window.__vendorUX&&window.__vendorUX.active)?'Vendor saved':'Vendor marked inactive','success')
+    if(typeof filterVendors==='function')filterVendors()
+    __vendorUXSelectByName(nm)
+  }catch(e){
+    toast(String(e&&e.message||e||'Save failed'),'error')
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent=prev}
+  }
+}
+async function deactivateVendor(){
+  const nm=(document.getElementById('v-name')?.value||'').trim()
+  if(!nm){toast('Select a vendor first','warn');return}
+  if(window.__vendorUX){window.__vendorUX.active=0}
+  await saveVendor()
+  const show=document.getElementById('vendor-show-inactive')
+  if(show && !show.checked){
+    if(typeof filterVendors==='function')filterVendors()
+    const first=document.querySelector('#vendor-list .vendor-item')
+    if(first)first.click();else __vendorUXClearForm()
+  }
+}
+function closeVendor(){try{if(typeof showSection==='function')showSection('dashboard')}catch{}}
+try{
+  if(!window.__bindVendorOrig && typeof bindVendor==='function')window.__bindVendorOrig=bindVendor
+  if(typeof bindVendor==='function'){
+    bindVendor=function(row){
+      try{window.__bindVendorOrig&&window.__bindVendorOrig(row)}catch{}
+      const nm=String(pick(row,['Name','Vendor','Company'])||'').trim()
+      if(window.__vendorUX){
+        window.__vendorUX.selectedName=nm
+        const f=window.__vendorUX.flags.get(__vendorUXLc(nm))
+        if(f!=null)window.__vendorUX.active=f
+      }
+      __vendorUXSetTitle(nm)
+      loadVendorExtended(nm)
+    }
+  }
+}catch{}
+try{
+  if(!window.__renderVendorListOrig && typeof renderVendorList==='function')window.__renderVendorListOrig=renderVendorList
+  renderVendorList=function(items){
+    const list=document.getElementById('vendor-list');const count=document.getElementById('vendor-count');if(!list)return;
+    list.innerHTML=''
+    if(!items||!items.length){list.textContent='No vendors match your filters';if(count)count.textContent='0';return}
+    const nameKeys=['Name','Vendor','Company']
+    let selectedIdx=-1
+    items.forEach((row,idx)=>{
+      const div=document.createElement('div')
+      div.className='vendor-item'
+      div.tabIndex=0
+      const nm=String(pick(row,nameKeys)||'(unnamed)')
+      div.dataset.name=nm
+      const f=(window.__vendorUX&&window.__vendorUX.flags)?window.__vendorUX.flags.get(__vendorUXLc(nm)):null
+      const isInactive=(f!=null && !f)
+      div.textContent=nm+(isInactive?' (inactive)':'')
+      div.addEventListener('click',()=>{
+        document.querySelectorAll('#vendor-list .vendor-item').forEach(i=>i.classList.remove('active'))
+        div.classList.add('active')
+        bindVendor(row)
+      })
+      div.addEventListener('keydown',e=>{
+        if(e.key==='Enter'||e.key===' '){e.preventDefault();div.click();return}
+        if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+          e.preventDefault()
+          const all=[...document.querySelectorAll('#vendor-list .vendor-item')]
+          const i=all.indexOf(div)
+          const next=(e.key==='ArrowDown')?Math.min(all.length-1,i+1):Math.max(0,i-1)
+          const n=all[next]
+          if(n){n.focus();n.click()}
+        }
+      })
+      list.appendChild(div)
+      if(window.__vendorUX && __vendorUXLc(nm)===__vendorUXLc(window.__vendorUX.selectedName))selectedIdx=idx
+    })
+    const els=[...document.querySelectorAll('#vendor-list .vendor-item')]
+    const sel=(selectedIdx>=0?els[selectedIdx]:els[0])
+    if(sel){sel.classList.add('active');sel.click()}
+    if(count)count.textContent=String(items.length)+(items.length===1?' vendor':' vendors')
+  }
+}catch{}
+try{
+  if(!window.__filterVendorsOrig && typeof filterVendors==='function')window.__filterVendorsOrig=filterVendors
+  filterVendors=function(){
+    const qn=(document.getElementById('vendor-q-name')?.value||'').toLowerCase()
+    const qc=(document.getElementById('vendor-q-contact')?.value||'').toLowerCase()
+    const qp=(document.getElementById('vendor-q-phone')?.value||'').toLowerCase()
+    const showInactive=!!(document.getElementById('vendor-show-inactive')&&document.getElementById('vendor-show-inactive').checked)
+    const items=(__vendors||[]).filter(r=>{
+      const nameRaw=String(pick(r,['Name','Vendor','Company'])||'')
+      const name=nameRaw.toLowerCase()
+      const contact=(String(pick(r,['Contact','ContactName','Attn']))).toLowerCase()
+      const phone=(String(pick(r,['Phone','Telephone','Mobile']))).toLowerCase()
+      const f=(window.__vendorUX&&window.__vendorUX.flags)?window.__vendorUX.flags.get(__vendorUXLc(nameRaw)):null
+      const passActive=(showInactive || f==null || f)
+      return passActive && (!qn||name.includes(qn)) && (!qc||contact.includes(qc)) && (!qp||phone.includes(qp))
+    })
+    renderVendorList(items)
+  }
+}catch{}
+try{
+  if(!window.__initVendorPageOrig && typeof initVendorPage==='function')window.__initVendorPageOrig=initVendorPage
+  initVendorPage=async function(){
+    await window.__initVendorPageOrig()
+    if(window.__vendorUX && !window.__vendorUX.bound){
+      window.__vendorUX.bound=true
+      const show=document.getElementById('vendor-show-inactive');if(show)show.addEventListener('change',()=>{try{filterVendors()}catch{}})
+      const clear=document.getElementById('vendor-clear');if(clear)clear.addEventListener('click',()=>{['vendor-q-name','vendor-q-contact','vendor-q-phone'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});if(show)show.checked=false;try{filterVendors()}catch{};try{document.getElementById('vendor-q-name')?.focus()}catch{}})
+      const newBtn=document.getElementById('vendor-new');if(newBtn)newBtn.addEventListener('click',()=>{__vendorUXClearForm();try{document.getElementById('v-name')?.focus()}catch{}})
+      const saveBtn=document.getElementById('vendor-save');if(saveBtn)saveBtn.addEventListener('click',saveVendor)
+      const deactBtn=document.getElementById('vendor-deactivate');if(deactBtn)deactBtn.addEventListener('click',deactivateVendor)
+      const closeBtn=document.getElementById('vendor-close');if(closeBtn)closeBtn.addEventListener('click',closeVendor)
+      ;['vendor-q-name','vendor-q-contact','vendor-q-phone'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.addEventListener('keydown',e=>{if(e.key==='Escape'){if(el.value){el.value='';try{filterVendors()}catch{};e.preventDefault()}return}if(e.key==='ArrowDown'){const first=document.querySelector('#vendor-list .vendor-item');if(first){e.preventDefault();first.focus();first.click()}}})})
+    }
+    if(window.__vendorUX && !window.__vendorUX.loadedFlags){await __vendorUXLoadFlags();try{filterVendors()}catch{}}
+    __vendorUXSetTitle(window.__vendorUX&&window.__vendorUX.selectedName||'')
+  }
+}catch{}
 async function initInventoryPage(){if(__invLoaded){filterInventory();return}try{const s=await fetch(api('/api/schema?table=inventory'));const sj=await s.json().catch(()=>({}));__invSchema=sj.schema||[];const d=await fetch(api('/api/data?table=inventory&limit=1000'));const dj=await d.json().catch(()=>({}));__invRows=dj.rows||[];__invLoaded=true;['inv-q-code','inv-q-desc','inv-q-cat'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('input',filterInventory)});const ref=document.getElementById('inv-refresh');if(ref)ref.addEventListener('click',async()=>{__invLoaded=false;await initInventoryPage()});document.querySelectorAll('#section-inventory .tab').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('#section-inventory .tab').forEach(b=>b.classList.toggle('active',b===btn));document.querySelectorAll('#section-inventory .tabpane').forEach(p=>p.classList.toggle('active',p.id==='inv-tab-'+btn.dataset.tab))})});const addBtn=document.getElementById('inv-loc-add');const delBtn=document.getElementById('inv-loc-del');if(addBtn)addBtn.addEventListener('click',addInvLocRow);if(delBtn)delBtn.addEventListener('click',delInvLocRow);const picBrowse=document.getElementById('inv-pic-browse');const picClear=document.getElementById('inv-pic-clear');if(picBrowse)picBrowse.addEventListener('click',browseInventoryPicture);if(picClear)picClear.addEventListener('click',clearInventoryPicture);const bomAdd=document.getElementById('inv-bom-add');const bomDel=document.getElementById('inv-bom-del');if(bomAdd)bomAdd.addEventListener('click',addInvBOMRow);if(bomDel)bomDel.addEventListener('click',delInvBOMRow);const venAdd=document.getElementById('inv-vendor-add');const venDel=document.getElementById('inv-vendor-del');if(venAdd)venAdd.addEventListener('click',addInvVendorRow);if(venDel)venDel.addEventListener('click',delInvVendorRow);const trackAdd=document.getElementById('inv-track-add');const trackDel=document.getElementById('inv-track-del');if(trackAdd)trackAdd.addEventListener('click',addInvTrackRow);if(trackDel)trackDel.addEventListener('click',delInvTrackRow);const trackType=document.getElementById('inv-tracking-type');if(trackType)trackType.addEventListener('change',renderInvTracking);const scanBtn=document.getElementById('inv-track-scan');if(scanBtn)scanBtn.addEventListener('click',toggleScanMode);const scanInp=document.getElementById('inv-track-scan-input');if(scanInp)scanInp.addEventListener('keydown',handleScanEnter);const genBtn=document.getElementById('inv-track-gen');if(genBtn)genBtn.addEventListener('click',addNTrackRows);const fefoBtn=document.getElementById('inv-track-fefo');if(fefoBtn)fefoBtn.addEventListener('click',fefoAllocate);const expBtn=document.getElementById('inv-track-export');if(expBtn)expBtn.addEventListener('click',exportTrackingCSV);const impBtn=document.getElementById('inv-track-import');if(impBtn)impBtn.addEventListener('click',importTrackingCSV);const saveBtn=document.getElementById('inv-save');if(saveBtn)saveBtn.addEventListener('click',saveInvExtended);filterInventory();renderInvMovement();renderInvOrders()}catch(e){const list=document.getElementById('inv-list');if(list)list.textContent='Error: '+(e&&e.message||e)}}

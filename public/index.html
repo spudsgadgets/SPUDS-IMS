@@ -4,9 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IMS</title>
-<link rel="stylesheet" href="./styles.css?v=teal35">
+<link rel="stylesheet" href="./styles.css?v=teal63">
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to content</a>
 <div class="app-shell">
   <div class="main-area">
     <header class="appbar">
@@ -16,7 +17,10 @@
         <span class="brand-ver"></span>
       </div>
       <div class="actions">
-        <input id="global-search" class="top-search" placeholder="Search…" autocomplete="off" spellcheck="false">
+        <div class="top-search-wrap">
+          <input id="global-search" class="top-search" placeholder="Search current page (Ctrl+K)" autocomplete="off" spellcheck="false" aria-label="Global search">
+          <button id="global-search-clear" class="icon-btn" type="button" aria-label="Clear search" hidden>×</button>
+        </div>
         <span id="auth-user" class="auth-user"></span>
         <button id="auth-btn" class="auth-btn" type="button">Logout</button>
         <button id="mode-btn" class="mode-btn" type="button">Mobile</button>
@@ -35,7 +39,7 @@
         <a class="nav-btn" data-section="help" href="#section-help">Help</a>
       </nav>
     </div>
-    <main class="content">
+    <main class="content" id="main-content" tabindex="-1">
   <section id="section-dashboard" class="panel section section-active">
     <div class="dash-wrap">
       <div class="dash-top">
@@ -153,12 +157,12 @@
     <div class="vendor-toolbar">
       <div class="vendor-title">Vendor</div>
       <div class="vendor-actions">
-        <button class="btn">New</button>
-        <button class="btn">Save</button>
-        <button class="btn">Deactivate</button>
+        <button id="vendor-new" class="btn" type="button">New</button>
+        <button id="vendor-save" class="btn" type="button">Save</button>
+        <button id="vendor-deactivate" class="btn" type="button">Deactivate</button>
         <button id="vendor-import" class="btn">Import From PO</button>
         <button id="vendor-statement" class="btn" type="button">Statement</button>
-        <button class="btn">Close</button>
+        <button id="vendor-close" class="btn" type="button">Close</button>
       </div>
     </div>
     <div class="vendor-wrap">
@@ -167,7 +171,11 @@
         <label>Name<input id="vendor-q-name" class="inp" placeholder=""></label>
         <label>Contact<input id="vendor-q-contact" class="inp" placeholder=""></label>
         <label>Phone<input id="vendor-q-phone" class="inp" placeholder=""></label>
-        <button id="vendor-refresh" class="btn btn-small">Refresh</button>
+        <label class="chk"><input id="vendor-show-inactive" type="checkbox">Show inactive</label>
+        <div class="row">
+          <button id="vendor-clear" class="btn btn-small" type="button">Clear</button>
+          <button id="vendor-refresh" class="btn btn-small" type="button">Refresh</button>
+        </div>
         <div class="vendor-list" id="vendor-list"></div>
         <div class="vendor-count" id="vendor-count"></div>
       </aside>
@@ -876,6 +884,6 @@
   </div>
 </div>
 <div id="sticky-footer" class="sticky-footer"></div>
-<script type="module" src="./app.js?v=teal61"></script>
+<script type="module" src="./app.js?v=teal63"></script>
 </body>
 </html>

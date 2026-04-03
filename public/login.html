@@ -22,7 +22,10 @@
     </div>
     <div class="row login-field">
       <div class="login-label">Password</div>
-      <input id="login-password" class="inp nocase" placeholder="Password" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false">
+      <div class="login-pass-wrap">
+        <input id="login-password" class="inp nocase" placeholder="Password" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false">
+        <button id="login-toggle-pass" class="icon-btn" type="button" aria-label="Show password">Show</button>
+      </div>
     </div>
     <div class="row">
       <button id="login-submit" class="btn login-btn">Sign In</button>

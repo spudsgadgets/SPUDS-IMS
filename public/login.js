@@ -6,6 +6,7 @@ const btn=document.getElementById('login-submit')
 const remember=document.getElementById('login-remember')
 const logoutBtn=document.getElementById('login-logout')
 const statusEl=document.getElementById('login-status')
+const togglePassBtn=document.getElementById('login-toggle-pass')
 const brandLogo=document.getElementById('brand-logo')
 const verEl=document.getElementById('login-ver')
 function applyLogo(src){if(!brandLogo)return;if(src){brandLogo.src=src;brandLogo.style.display='inline-block'}else{brandLogo.removeAttribute('src');brandLogo.style.display='none'}}
@@ -30,7 +31,9 @@ async function __quickHealthCheck(){
 async function ensureVersion(){try{if(!verEl)return;const cur=(verEl.textContent||'').trim();if(cur)return;const m=/\bIMS\s+v([0-9][^\s]*)/i.exec(document.title||'');if(m&&m[1]){verEl.textContent='v'+m[1];return}const r=await fetch(api('/api/version'));const j=await r.json().catch(()=>({}));const ver=j&&j.version;if(ver){verEl.textContent='v'+ver;if(!/\bIMS\s+v/i.test(document.title||''))document.title='IMS v'+ver}}catch{}}
 ensureVersion()
 async function doLogin(){
-  if(statusEl)statusEl.textContent='Logging in...'
+  const prevText=btn?String(btn.textContent||''):''
+  if(btn){btn.disabled=true;btn.textContent='Signing in...'}
+  if(statusEl)statusEl.textContent='Signing in...'
   try{
     const username=String(u?.value||'').trim()
     const password=String(p?.value||'')
@@ -44,11 +47,22 @@ async function doLogin(){
   }catch(e){
     const ok=await __quickHealthCheck()
     if(statusEl)statusEl.textContent=ok?('Login error: '+(e&&e.message||e)):__hintForFetchFailure()
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent=prevText||'Sign In'}
   }
 }
 window.doLogin=doLogin
 if(btn)btn.addEventListener('click',doLogin)
-document.addEventListener('keydown',(e)=>{if(e.key==='Enter')doLogin()})
+document.addEventListener('keydown',(e)=>{if(e.key==='Enter'&&(e.target===u||e.target===p))doLogin()})
+if(togglePassBtn&&p){
+  togglePassBtn.addEventListener('click',()=>{
+    const show=p.type==='password'
+    p.type=show?'text':'password'
+    togglePassBtn.textContent=show?'Hide':'Show'
+    togglePassBtn.setAttribute('aria-label',show?'Hide password':'Show password')
+    try{p.focus()}catch{}
+  })
+}
 function getAuthHeaders(){let h={};try{const t=localStorage.getItem('ims_token');if(t)h['Authorization']='Bearer '+t}catch{};return h}
 async function checkMe(){
   try{
@@ -60,6 +74,7 @@ async function checkMe(){
   }catch{}
 }
 checkMe()
+try{u&&u.focus()}catch{}
 if(logoutBtn)logoutBtn.addEventListener('click',async()=>{
   if(statusEl)statusEl.textContent='Logging out...'
   try{
