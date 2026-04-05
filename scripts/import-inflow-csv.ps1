@@ -11,11 +11,25 @@ function SanitizeName([string]$name){
   if([string]::IsNullOrWhiteSpace($n)){ $n = "table" }
   return $n
 }
+$allowedTables = @(
+  "inflow_product",
+  "inflow_inventory",
+  "inflow_bom",
+  "inflow_vendor",
+  "inflow_customer",
+  "inflow_purchaseorder",
+  "inflow_salesorder"
+)
 $files = Get-ChildItem -Path $CsvDir -Filter *.csv -File -Recurse
 if(-not $files -or $files.Count -eq 0){ Write-Warning "No CSV files found."; exit 0 }
-$ok = 0; $fail = 0
+$ok = 0; $fail = 0; $skip = 0
 foreach($f in $files){
   $table = SanitizeName([System.IO.Path]::GetFileNameWithoutExtension($f.Name))
+  if($allowedTables -notcontains $table){
+    Write-Warning "Skipping '$($f.FullName)' => table '$table' (not in allowlist)"
+    $skip++
+    continue
+  }
   Write-Host "Importing '$($f.FullName)' => table '$table' ..."
   try{
     $text = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8
@@ -37,4 +51,4 @@ foreach($f in $files){
     $fail++
   }
 }
-Write-Host "Done. Success: $ok, Failed: $fail"
+Write-Host "Done. Success: $ok, Failed: $fail, Skipped: $skip"

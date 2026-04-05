@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IMS</title>
-<link rel="stylesheet" href="./styles.css?v=teal63">
+<link rel="stylesheet" href="./styles.css?v=teal73">
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
@@ -243,7 +243,7 @@
       <div class="vendor-actions">
         <button class="btn">New</button>
         <button class="btn">Save</button>
-        <button class="btn">Print</button>
+        <button id="po-print" class="btn" type="button">Print</button>
         <button class="btn">Copy</button>
         <button class="btn">Version</button>
         <button class="btn">Attachment</button>
@@ -273,7 +273,10 @@
         <div class="grid three-col po-top">
           <div>
             <div class="section-title">Vendor</div>
-            <label class="req"><span class="lbl">Vendor</span><input id="po-vendor" class="inp" data-cols="Vendor,VendorName,Supplier,Company,Name"></label>
+            <label class="req"><span class="lbl">Vendor</span><input id="po-vendor" class="inp" autocomplete="off" list="po-vendor-list" data-cols="Vendor,VendorName,Supplier,Company,Name"></label>
+            <div class="row" style="margin-top:-4px">
+              <button id="po-vendor-add" class="btn btn-small" type="button">Add Vendor</button>
+            </div>
             <label>Contact<input id="po-contact" class="inp" data-cols="Contact,ContactName,Attn"></label>
             <label>Phone<input id="po-phone" class="inp" data-cols="Phone,Telephone,Mobile"></label>
             <label>Vendor Address<textarea id="po-vendor-address" class="inp" rows="4" data-cols="VendorAddress,Address"></textarea></label>
@@ -298,6 +301,7 @@
         <div class="row po-item-toolbar" id="po-item-toolbar">
           <button id="po-item-add" class="btn btn-small">Add Row</button>
           <button id="po-item-del" class="btn btn-small">Delete Row</button>
+          <button id="po-product-add" class="btn btn-small">Add Product</button>
         </div>
         <div id="po-items" class="table-host"></div>
         <div class="vendor-tabpanes">
@@ -308,9 +312,6 @@
             <label>Taxing Scheme<input id="po-tax" class="inp" list="po-tax-list" data-cols="TaxingScheme,TaxCode,Tax"></label>
             <label>Non-Vendor Costs<input id="po-nonvendor" class="inp" data-cols="NonVendorCosts,ExtraCosts"></label>
             <label>Currency<input id="po-currency" class="inp" list="po-currency-list" data-cols="Currency"></label>
-            <datalist id="po-terms-list"></datalist>
-            <datalist id="po-tax-list"></datalist>
-            <datalist id="po-currency-list"></datalist>
           </div>
           <div>
             <label>Req. Ship Date<input id="po-req-ship" class="inp" data-cols="RequiredShipDate,ReqShipDate"></label>
@@ -563,7 +564,7 @@
                 <label>Reorder Quantity<input id="inv-reorder-qty" class="inp" data-cols="ReorderQuantity,ReorderQty"></label>
                 <label>Default Location<input id="inv-default-loc" class="inp" data-cols="DefaultLocation"></label>
                 <label>Default Sublocation<input id="inv-default-subloc" class="inp" data-cols="DefaultSublocation"></label>
-                <label>Last Vendor<input id="inv-last-vendor" class="inp" data-cols="LastVendor,LastSupplier"></label>
+            <label>Last Vendor<input id="inv-last-vendor" class="inp" list="dl-vendors" data-cols="LastVendor,LastSupplier"></label>
                 <div class="section-title" style="margin-top:12px">Unit of Measure</div>
                 <label>Standard UoM<input id="inv-uom-std" class="inp" data-cols="StandardUoM,Unit,UnitOfMeasure"></label>
                 <label>Sales UoM (SU)<input id="inv-uom-sales" class="inp" data-cols="SalesUoM"></label>
@@ -651,7 +652,7 @@
       <div class="vendor-actions">
         <button class="btn">New</button>
         <button class="btn">Save</button>
-        <button class="btn">Print</button>
+        <button id="so-print" class="btn">Print</button>
         <button class="btn">Close</button>
       </div>
     </div>
@@ -671,7 +672,9 @@
         <div class="grid two-col">
           <div>
             <div class="section-title">Customer</div>
-            <label>Customer<input id="so-customer" class="inp" data-cols="Customer,CustomerName,Company,Name"></label>
+            <label>Customer<input id="so-customer" class="inp" list="so-customer-list" data-cols="Customer,CustomerName,Company,Name"></label>
+            <button id="so-customer-add" class="btn btn-small" style="margin-top:4px">Add Customer</button>
+            <datalist id="so-customer-list"></datalist>
             <label>Contact<input id="so-contact" class="inp" data-cols="Contact,ContactName,Attn"></label>
             <label>Phone<input id="so-phone" class="inp" data-cols="Phone,Telephone,Mobile"></label>
             <label>Address<textarea id="so-address" class="inp" rows="4" data-cols="Address,BillToAddress,BillingAddress"></textarea></label>
@@ -688,6 +691,7 @@
         <div class="row">
           <button id="so-item-add" class="btn btn-small">Add Row</button>
           <button id="so-item-del" class="btn btn-small">Delete Row</button>
+          <button id="so-product-add" class="btn btn-small">Add Product</button>
         </div>
         <div id="so-items" class="table-host"></div>
         <div class="vendor-tabs">
@@ -711,10 +715,10 @@
           </div>
           <div>
             <div class="section-title">Totals</div>
-            <label>Sub-Total<input id="so-subtotal" class="inp" readonly></label>
-            <label>Total<input id="so-total" class="inp" readonly></label>
-            <label>Paid<input id="so-paid" class="inp" readonly></label>
-            <label>Balance<input id="so-balance" class="inp" readonly></label>
+            <label>Sub-Total<input id="so-subtotal" class="inp" data-cols="SubTotal,Subtotal" readonly></label>
+            <label>Total<input id="so-total" class="inp" data-cols="Total,GrandTotal" readonly></label>
+            <label>Paid<input id="so-paid" class="inp" data-cols="Paid,PaidAmount,AmountPaid" readonly></label>
+            <label>Balance<input id="so-balance" class="inp" data-cols="Balance,BalanceDue,AmountDue" readonly></label>
             <button class="btn" style="margin-top:8px">Complete &amp; Pay</button>
           </div>
         </div>
@@ -856,9 +860,11 @@
       <button id="db-backup">Backup Database</button>
       <button id="db-restore">Restore Database</button>
       <button id="db-clear">Clear Database</button>
+      <button id="db-clear-so">Clear Sales Orders</button>
     </div>
     <div id="db-restore-status" class="status"></div>
     <div id="db-clear-status" class="status"></div>
+    <div id="db-clear-so-status" class="status"></div>
     <div class="row">
       <button id="db-archive">Archive Prior Years</button>
       <button id="db-archive-rebalance">Rebalance Archive</button>
@@ -883,7 +889,14 @@
     </main>
   </div>
 </div>
+<datalist id="dl-vendors"></datalist>
+<datalist id="dl-customers"></datalist>
+<datalist id="dl-items"></datalist>
+<datalist id="po-vendor-list"></datalist>
+<datalist id="po-terms-list"></datalist>
+<datalist id="po-tax-list"></datalist>
+<datalist id="po-currency-list"></datalist>
 <div id="sticky-footer" class="sticky-footer"></div>
-<script type="module" src="./app.js?v=teal63"></script>
+<script type="module" src="./app.js?v=teal92"></script>
 </body>
 </html>

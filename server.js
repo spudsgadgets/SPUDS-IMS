@@ -503,7 +503,12 @@ async function ensurePool(){
     throw e
   }
 }
-async function ensureInventoryView(){const pool=await ensurePool();const sql="CREATE OR REPLACE VIEW `inventory` AS SELECT p.`Name` AS product_name,p.`Category` AS category,p.`Description` AS description,p.`UnitPrice` AS unit_price,i.`Location` AS location,i.`Sublocation` AS sublocation,i.`Quantity` AS quantity,IFNULL(b.bom_lines,0) AS bom_lines FROM inflow_product p LEFT JOIN inflow_inventory i ON i.`Item`=p.`Name` LEFT JOIN (SELECT `FinishedItem`,COUNT(*) AS bom_lines FROM inflow_bom GROUP BY `FinishedItem`) b ON b.`FinishedItem`=p.`Name`;";await pool.query(sql)}
+async function ensureInventoryView(){
+  const pool=await ensurePool();
+  await pool.query('CREATE TABLE IF NOT EXISTS `product_derived` ( `Name` VARCHAR(255) PRIMARY KEY, `Category` TEXT, `Description` TEXT, `UnitPrice` DOUBLE NULL ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+  const sql="CREATE OR REPLACE VIEW `inventory` AS SELECT p.`Name` AS product_name,p.`Category` AS category,p.`Description` AS description,p.`UnitPrice` AS unit_price,i.`Location` AS location,i.`Sublocation` AS sublocation,i.`Quantity` AS quantity,IFNULL(b.bom_lines,0) AS bom_lines FROM (SELECT `Name`,`Category`,`Description`,`UnitPrice` FROM inflow_product UNION SELECT `Name`,`Category`,`Description`,`UnitPrice` FROM product_derived) p LEFT JOIN inflow_inventory i ON i.`Item`=p.`Name` LEFT JOIN (SELECT `FinishedItem`,COUNT(*) AS bom_lines FROM inflow_bom GROUP BY `FinishedItem`) b ON b.`FinishedItem`=p.`Name`;";
+  await pool.query(sql)
+}
 async function ensureVendorView(){const pool=await ensurePool();const sql="CREATE OR REPLACE VIEW `vendor` AS SELECT * FROM inflow_vendor;";await pool.query(sql)}
 async function ensurePurchaseOrderView(){const pool=await ensurePool();const sql="CREATE OR REPLACE VIEW `purchase_order` AS SELECT * FROM inflow_purchaseorder;";await pool.query(sql)}
 async function ensureSalesOrderView(){const pool=await ensurePool();const sql="CREATE OR REPLACE VIEW `sales_order` AS SELECT * FROM inflow_salesorder;";await pool.query(sql)}
@@ -1006,6 +1011,31 @@ if(url.pathname==='/api/db/clear'&&req.method==='POST'){
   })
   return
 }
+if(url.pathname==='/api/db/clear-sales-orders'&&req.method==='POST'){
+  const s=__getSession(req)
+  if(!s||!s.user){unauthorized(res,'not logged in');return}
+  const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
+    try{
+      const body=Buffer.concat(chunks).toString('utf8')||'{}'
+      const payload=JSON.parse(body||'{}')
+      const confirm=String(payload&&payload.confirm||'').trim().toUpperCase()
+      const password=String(payload&&payload.password||'')
+      if(confirm!=='CLEAR SO'){bad(res,'confirmation required');return}
+      const adminPass=String(process.env.IMS_ADMIN_PASSWORD||process.env.IMS_PASSWORD||process.env.ADMIN_PASSWORD||'')
+      if(!adminPass){bad(res,'admin password not configured (set IMS_ADMIN_PASSWORD or IMS_PASSWORD)');return}
+      if(password!==adminPass){unauthorized(res,'invalid admin password');return}
+      const pool=await ensurePool()
+      try{await pool.query('CREATE TABLE IF NOT EXISTS `inflow_salesorder` (id BIGINT AUTO_INCREMENT PRIMARY KEY) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')}catch{}
+      try{await ensureSalesOrderView()}catch{}
+      const [del]=await pool.query('DELETE FROM `inflow_salesorder`')
+      const deleted=Number(del&&del.affectedRows)||0
+      ok(res,{ok:true,deleted})
+    }catch(e){
+      json(res,400,{error:String(e&&e.message||e)})
+    }
+  })
+  return
+}
 if(url.pathname==='/api/db/fix-duplicates'&&req.method==='POST'){
   const s=__getSession(req)
   if(!s||!s.user){unauthorized(res,'not logged in');return}
@@ -1231,6 +1261,27 @@ if(url.pathname==='/api/inventory/extended'&&req.method==='PUT'){
   });
   return
 }
+if(url.pathname==='/api/product/derived'&&req.method==='PUT'){
+  const name=(url.searchParams.get('name')||'').trim();
+  if(!name)return bad(res,'missing name');
+  const chunks=[];req.on('data',ch=>chunks.push(ch));req.on('end',async()=>{
+    try{
+      const body=Buffer.concat(chunks).toString('utf8')||'{}';
+      const payload=JSON.parse(body||'{}');
+      const p=payload&&payload.product||payload||{};
+      const pool=await ensurePool();
+      await pool.query('CREATE TABLE IF NOT EXISTS `product_derived` ( `Name` VARCHAR(255) PRIMARY KEY, `Category` TEXT, `Description` TEXT, `UnitPrice` DOUBLE NULL ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci')
+      const cols=['Category','Description','UnitPrice'];
+      const vals=[p.Category??p.category??null,p.Description??p.description??null,(p.UnitPrice??p.unit_price??p.unitPrice??null)];
+      const placeholders=cols.map(()=>'?').join(',');
+      const updates=cols.map(k=>'`'+k+'`=VALUES(`'+k+'`)').join(',');
+      await pool.query('INSERT INTO `product_derived` (`Name`,'+cols.map(c=>'`'+c+'`').join(',')+') VALUES (?, '+placeholders+') ON DUPLICATE KEY UPDATE '+updates,[name,...vals]);
+      try{await ensureInventoryView()}catch{}
+      ok(res,{ok:true})
+    }catch(e){json(res,400,{error:String(e&&e.message||e)})}
+  });
+  return
+}
 const p=url.pathname.replace(/\/+$/,'')
 if((p==='/api/backup'||p.startsWith('/api/backup'))&&(req.method==='GET'||req.method==='HEAD')){
   try{
@@ -1390,6 +1441,7 @@ if(url.pathname==='/api/customer/extended'&&req.method==='PUT'){
       const payload=JSON.parse(body||'{}');
       const extra=payload&&payload.extra||{};
       const pool=await ensurePool();
+      await pool.query('CREATE TABLE IF NOT EXISTS `customer_derived` ( `Name` VARCHAR(255) PRIMARY KEY, `Contact` TEXT, `Phone` TEXT, `Address` TEXT, `BusinessAddress` TEXT, `ShipToAddress` TEXT, `Currency` TEXT, `PaymentTerms` TEXT, `TaxingScheme` TEXT ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
       await pool.query('CREATE TABLE IF NOT EXISTS `customer_extra` ( `Name` VARCHAR(255) PRIMARY KEY, `Address` TEXT, `BusinessAddress` TEXT, `ShipToAddress` TEXT, `Contact` TEXT, `Phone` TEXT, `Fax` TEXT, `Email` TEXT, `Website` TEXT, `Currency` TEXT, `Discount` DOUBLE NULL, `PaymentTerms` TEXT, `TaxingScheme` TEXT, `TaxExempt` TEXT, `Remarks` TEXT ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
       try{const [cols]=await pool.query('SHOW COLUMNS FROM `customer_extra`');const names=new Set((cols||[]).map(c=>c.Field));const adds=[];if(!names.has('BusinessAddress'))adds.push('ADD COLUMN `BusinessAddress` TEXT');if(!names.has('ShipToAddress'))adds.push('ADD COLUMN `ShipToAddress` TEXT');if(adds.length)await pool.query('ALTER TABLE `customer_extra` '+adds.join(', '))}catch{}
       const cols=['Address','BusinessAddress','ShipToAddress','Contact','Phone','Fax','Email','Website','Currency','Discount','PaymentTerms','TaxingScheme','TaxExempt','Remarks'];
@@ -1397,6 +1449,20 @@ if(url.pathname==='/api/customer/extended'&&req.method==='PUT'){
       const placeholders=cols.map(()=>'?').join(',');
       const updates=cols.map(k=>'`'+k+'`=VALUES(`'+k+'`)').join(',');
       await pool.query('INSERT INTO `customer_extra` (`Name`,'+cols.map(c=>'`'+c+'`').join(',')+') VALUES (?, '+placeholders+') ON DUPLICATE KEY UPDATE '+updates,[name,...vals]);
+      await pool.query('INSERT INTO `customer_derived` (`Name`,`Contact`,`Phone`,`Address`,`BusinessAddress`,`ShipToAddress`,`Currency`,`PaymentTerms`,`TaxingScheme`) VALUES (?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE `Contact`=VALUES(`Contact`),`Phone`=VALUES(`Phone`),`Address`=VALUES(`Address`),`BusinessAddress`=VALUES(`BusinessAddress`),`ShipToAddress`=VALUES(`ShipToAddress`),`Currency`=VALUES(`Currency`),`PaymentTerms`=VALUES(`PaymentTerms`),`TaxingScheme`=VALUES(`TaxingScheme`)',[
+        name,extra.Contact??null,extra.Phone??null,extra.Address??null,extra.BusinessAddress??null,extra.ShipToAddress??null,extra.Currency??null,extra.PaymentTerms??null,extra.TaxingScheme??null
+      ]);
+      await pool.query('CREATE TABLE IF NOT EXISTS `inflow_customer` (id BIGINT AUTO_INCREMENT PRIMARY KEY) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+      try{
+        const [icols]=await pool.query('SHOW COLUMNS FROM `inflow_customer`');
+        const names=new Set((icols||[]).map(c=>c.Field));
+        const adds=[];
+        if(!names.has('Name'))adds.push('ADD COLUMN `Name` TEXT');
+        if(adds.length)await pool.query('ALTER TABLE `inflow_customer` '+adds.join(', '));
+      }catch{}
+      try{
+        await pool.query('INSERT INTO `inflow_customer` (`Name`) SELECT ? WHERE NOT EXISTS (SELECT 1 FROM `inflow_customer` WHERE `Name`=?)',[name,name]);
+      }catch{}
       ok(res,{ok:true})
     }catch(e){json(res,400,{error:String(e&&e.message||e)})}
   });
