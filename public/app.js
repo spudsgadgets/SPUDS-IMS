@@ -2183,7 +2183,7 @@ function __poFitToScreen(){
   try{document.documentElement.style.setProperty('--footer-height',fh+'px')}catch{}
   const sect=document.getElementById('section-purchase-order');if(sect)sect.style.paddingBottom=(fh+12)+'px';
   const wrap=sect&&sect.querySelector('.vendor-wrap');
-  if(wrap){wrap.style.transform='none';wrap.style.height='auto'}
+  if(wrap){wrap.style.transform='';wrap.style.height=''}
 }
 window.addEventListener('resize',__poFitToScreen)
 try{setTimeout(ensurePOFooterSingleToggle,0)}catch{}

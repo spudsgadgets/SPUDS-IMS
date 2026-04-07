@@ -379,9 +379,9 @@ body.login .login-card .row.login-aux{flex-direction:row;align-items:center;gap:
 #section-purchase-order .tabs-bottom .tab{border-bottom:none;border-top:1px solid var(--tab-border);border-radius:0 0 6px 6px}
 #section-purchase-order .tabs-bottom .tab.active{border-color:var(--accent);border-top:2px solid var(--accent);background:var(--tab-active-bg)}
 #section-purchase-order .vendor-tabpanes{border-radius:6px 6px 0 0;border-bottom:none}
-#section-purchase-order #po-vendor-address{min-height:120px}
-#section-purchase-order #po-shipto{min-height:120px}
-#section-purchase-order #po-remarks{min-height:160px}
+#section-purchase-order #po-vendor-address{min-height:84px}
+#section-purchase-order #po-shipto{min-height:84px}
+#section-purchase-order #po-remarks{min-height:110px}
 #section-purchase-order #po-items table{width:100%;border-collapse:collapse}
 #section-purchase-order #po-items th,
 #section-purchase-order #po-items td{padding:6px 8px}
@@ -434,7 +434,7 @@ body.login .login-card .row.login-aux{flex-direction:row;align-items:center;gap:
 .panel.section .vendor-tabs{position:sticky;top:calc(var(--sticky-vendor-top) + var(--section-toolbar-height, 52px));z-index:845;background:var(--card)}
 .panel.section .vendor-tabs::before{content:"";position:absolute;left:0;right:0;top:-4px;height:4px;background:var(--card);pointer-events:none}
 /* Table column widths to resemble desktop screenshots */
-#section-purchase-order .vendor-wrap{overflow:auto;height:calc(100vh - var(--appbar-height,52px) - var(--menubar-height,0px) - var(--footer-height,0px) - 28px)}
+#section-purchase-order .vendor-wrap{overflow:hidden;height:calc(100vh - var(--appbar-height,52px) - var(--menubar-height,0px) - var(--section-toolbar-height,52px) - var(--footer-height,0px) - 28px)}
 #section-purchase-order.section-fit .vendor-wrap{transform-origin:top left}
 #section-purchase-order .vendor-item{padding:8px 10px;font-size:16px}
 #section-purchase-order .po-li{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -454,6 +454,9 @@ body.login .login-card .row.login-aux{flex-direction:row;align-items:center;gap:
 #section-purchase-order .section-title{font-size:16px}
 #section-purchase-order .inp{font-size:16px}
 #section-purchase-order #po-items table{font-size:15px}
+#section-purchase-order .vendor-detail{min-height:0;overflow:hidden}
+#section-purchase-order #po-items.table-host{flex:1 1 auto;min-height:0;overflow:auto}
+#section-purchase-order .vendor-tabpanes{flex:0 0 auto}
 #vendor-products table th:nth-child(2){width:32%}
 #vendor-products table th:nth-child(3){width:38%}
 #vendor-products table th:nth-child(4){width:18%}
