@@ -33,10 +33,7 @@ function Test-IsAdmin(){
     return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
   }catch{ return $false }
 }
-if(-not (Test-IsAdmin)){
-  Start-Process -FilePath "powershell" -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`" -DbPort {1} -ApiPort {2}" -f $PSCommandPath,$DbPort,$ApiPort) -Verb RunAs
-  exit 0
-}
+$null = Test-IsAdmin
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
 Ensure-Node $root | Out-Null

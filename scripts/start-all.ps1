@@ -304,6 +304,8 @@ try{
   if([string]::IsNullOrWhiteSpace($env:IMS_ADMIN_PASSWORD) -and [string]::IsNullOrWhiteSpace($env:IMS_PASSWORD) -and -not [string]::IsNullOrWhiteSpace($AdminPassword)){
     $env:IMS_ADMIN_PASSWORD = $AdminPassword
   }
+  $env:IMS_AUTO_START_DB = "1"
+  $env:IMS_AUTO_SETUP_DB = "1"
   if($Debug){
     $env:MYSQL_PORT=$DbPort
     $env:PORT=$ApiPort

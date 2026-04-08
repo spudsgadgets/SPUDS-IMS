@@ -1671,9 +1671,28 @@ function __poBindVendorAutofill(){
   venEl.addEventListener('keydown',e=>{if(e.key==='Enter'){runCommit()}})
   venEl.addEventListener('focus',prime)
 }
-function __extractPONumber(row){const keys=['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo','order_no','orderno','po','purchaseorder','purchase_order','docno','doc_no','bill','billno','bill_no'];const vals=[];for(const k of keys){if(k in row&&row[k]!=null&&row[k]!=='')vals.push(String(row[k]))}const all=vals.join(' ');let m=all.match(/PO[\s-]*([0-9]{3,})\b/i);if(m)return m[1];m=all.match(/^\s*([0-9]{3,})\b/);if(m)return m[1];m=all.match(/[0-9]{3,}/);if(m)return m[0];return ''}
+function __extractPONumber(row){const keys=['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo','order_no','orderno','po','purchaseorder','purchase_order','docno','doc_no','bill','billno','bill_no'];const vals=[];for(const k of keys){if(k in row&&row[k]!=null&&row[k]!=='')vals.push(String(row[k]))}let all=vals.join(' ');all=all.replace(/^\uFEFF+/,'').replace(/^ï»¿/,'');let m=all.match(/PO[\s-]*([0-9]{3,})\b/i);if(m)return m[1];m=all.match(/^\s*([0-9]{3,})\b/);if(m)return m[1];m=all.match(/[0-9]{3,}/);if(m)return m[0];return ''}
 function __poDisplayNumber(row){try{const num=__extractPONumber(row)||'';const dv=pick(row,['Date','OrderDate']);const d=dv?new Date(dv):null;const y=(d&&d.toString()!=='Invalid Date')?String(d.getFullYear()):String(new Date().getFullYear());return num?('PO-'+y+'-'+num):'PO'}catch{return 'PO'}}
-function renderPOList(items){const list=document.getElementById('po-list');const count=document.getElementById('po-count');if(!list)return;list.innerHTML='';if(!items.length){list.textContent='No orders';if(count)count.textContent='0';return}const filtered=items.map(r=>({row:r,num:__extractPONumber(r)})).filter(x=>x.num);filtered.forEach(({row,num},idx)=>{const div=document.createElement('div');div.className='vendor-item';const display=/^\\s*po[\\s-]/i.test(num)?num:('PO '+num);div.textContent=display;div.addEventListener('click',()=>{document.querySelectorAll('#po-list .vendor-item').forEach(i=>i.classList.remove('active'));div.classList.add('active');bindPO(row)});list.appendChild(div);if(idx===0){div.classList.add('active');bindPO(row)}});if(count)count.textContent=String(filtered.length)}
+function __poItemsForRow(row){
+  try{
+    const key=String(pick(row,['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo'])||'').trim()
+    if(!key)return []
+    const rows=(__poRows||[]).filter(r=>String(pick(r,['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo'])||'').trim()===key)
+    const items=[]
+    for(const r of rows){
+      const name=String(pick(r,['Item','ItemName','Product','ProductName','Name'])||'').trim()
+      const desc=String(pick(r,['Description','ItemDescription','Desc'])||'').trim()
+      const vcode=String(pick(r,['VendorItemCode','VendorProductCode','VendorCode'])||'').trim()
+      const qty=String(pick(r,['ItemQuantity','Quantity','Qty'])??'').trim()
+      const price=String(pick(r,['ItemUnitPrice','UnitPrice','Price'])??'').trim()
+      const discount=String(pick(r,['ItemDiscount','Discount'])??'').trim()
+      if(!name && !desc && !vcode && !qty && !price && !discount)continue
+      items.push({item:name,barcode:'',desc:desc,vcode:vcode,qty:qty||'0',price:price||'0.00',discount:discount||'0.00',track:{type:'None',serials:[],lots:[]}})
+    }
+    return items
+  }catch{return []}
+}
+function renderPOList(items){const list=document.getElementById('po-list');const count=document.getElementById('po-count');if(!list)return;list.innerHTML='';if(!items.length){list.textContent='No orders';if(count)count.textContent='0';return}const filtered=items.map(r=>({row:r,num:__extractPONumber(r)})).filter(x=>x.num);filtered.forEach(({row,num},idx)=>{const div=document.createElement('div');div.className='vendor-item';const display=/^\\s*po[\\s-]/i.test(num)?num:('PO '+num);div.textContent=display;div.addEventListener('click',()=>{document.querySelectorAll('#po-list .vendor-item').forEach(i=>i.classList.remove('active'));div.classList.add('active');bindPO(row,__poItemsForRow(row))});list.appendChild(div);if(idx===0){div.classList.add('active');bindPO(row,__poItemsForRow(row))}});if(count)count.textContent=String(filtered.length)}
 function filterPO(){
   const qn=(document.getElementById('po-q-num')?.value||'').toLowerCase()
   const qs=(document.getElementById('po-q-status')?.value||'').toLowerCase()
@@ -1684,7 +1703,7 @@ function filterPO(){
   const to=qt?new Date(qt):null
   const matches=(r)=>{
     const num=(String(__extractPONumber(r))).toLowerCase()
-    const stat=(String(pick(r,['Status']))).toLowerCase()
+    const stat=(String(pick(r,['Status','OrderStatus']))).toLowerCase()
     const ven=(String(pick(r,['Vendor','VendorName','Supplier','Company','Name']))).toLowerCase()
     let pass=(!!num)&&(!qn||num.includes(qn))&&(!qs||stat===qs)&&(!qv||ven===qv)
     if(pass&&(from||to)){
@@ -2103,13 +2122,32 @@ try{
 
 function __applyPOTrackingFromInventory(){try{const typeSel=document.getElementById('po-adv-track-type');const serialPanel=document.getElementById('po-adv-serial-panel');const lotPanel=document.getElementById('po-adv-lot-panel');if(!typeSel||!serialPanel||!lotPanel){setTimeout(__applyPOTrackingFromInventory,300);return}const items=__poItemMap.get(__poCurrentKey)||[];const idx=__poSelectedIndex>=0?__poSelectedIndex:0;const it=items[idx];if(!it){setTimeout(__applyPOTrackingFromInventory,300);return}ensureTrack(it);const invRow=__poFindInvRowBy(it.item,it.barcode);const isNS=__poIsNonStock(invRow);if(isNS){typeSel.value='None';typeSel.disabled=true;serialPanel.style.display='none';lotPanel.style.display='none';typeSel.title='Non-stock/service item — tracking disabled'}else{typeSel.disabled=false;typeSel.title='';const t=it.track.type||'None';typeSel.value=t;serialPanel.style.display=(t==='Serial')?'block':'none';lotPanel.style.display=(t==='Lot')?'block':'none'}}catch{}}
 function renderPOAdvReturnItems(){const host=document.getElementById('po-adv-return-items');if(!host)return;const items=__poItemMap.get(__poCurrentKey)||[];host.innerHTML='';const table=document.createElement('table');const thead=document.createElement('thead');const trh=document.createElement('tr');['Item','Description','Barcode','Quantity','Unit Price','Discount','Sub-Total'].forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});thead.appendChild(trh);table.appendChild(thead);let subtotal=0;const tbody=document.createElement('tbody');items.forEach(it=>{const tr=document.createElement('tr');const td1=document.createElement('td');td1.textContent=it.item||'';tr.appendChild(td1);const td2=document.createElement('td');td2.textContent=it.desc||'';tr.appendChild(td2);const tdB=document.createElement('td');tdB.textContent=it.barcode||'';tr.appendChild(tdB);const q=parseNum(it.qty);const p=parseNum(it.price);const d=parseNum(it.discount);const sub=Math.max(0,(q*p)-d);subtotal+=sub;const td3=document.createElement('td');td3.textContent=String(q);tr.appendChild(td3);const td4=document.createElement('td');td4.textContent=p.toFixed(2);tr.appendChild(td4);const td5=document.createElement('td');td5.textContent=d.toFixed(2);tr.appendChild(td5);const td6=document.createElement('td');td6.textContent=sub.toFixed(2);tr.appendChild(td6);tbody.appendChild(tr)});table.appendChild(tbody);host.appendChild(table);const set=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val.toFixed(2)};set('po-adv-return-subtotal',subtotal);const feeEl=document.getElementById('po-adv-return-fee');const refundedEl=document.getElementById('po-adv-return-refunded');const fee=parseNum(feeEl&&feeEl.value);const refunded=parseNum(refundedEl&&refundedEl.value);const credit=Math.max(0,subtotal-fee-refunded);const credEl=document.getElementById('po-adv-return-credit');if(credEl)credEl.value=credit.toFixed(2)}
-function bindPO(row){
+function bindPO(row,itemsFromDb){
   const map=['po-vendor','po-contact','po-phone','po-vendor-address','po-number','po-date','po-status','po-shipto','po-terms','po-due','po-req-ship','po-remarks','po-tax','po-nonvendor','po-currency','po-subtotal','po-freight','po-total','po-paid','po-balance']
   map.forEach(id=>{const el=document.getElementById(id);if(!el)return;const cols=parseCols(el);el.value=pick(row,cols)})
+  try{
+    const joinLines=(arr)=>arr.map(v=>String(v||'').trim()).filter(Boolean).join('\n').trim()
+    const vendorAddr=joinLines([
+      row.VendorAddress1,row.VendorAddress2,
+      [row.VendorCity,row.VendorState,row.VendorPostalCode].map(v=>String(v||'').trim()).filter(Boolean).join(', '),
+      row.VendorCountry,row.VendorAddressRemarks
+    ])
+    const shipToAddr=joinLines([
+      row.ShipToCompanyName,row.ShipToAddress1,row.ShipToAddress2,
+      [row.ShipToCity,row.ShipToState,row.ShipToPostalCode].map(v=>String(v||'').trim()).filter(Boolean).join(', '),
+      row.ShipToCountry,row.ShipToAddressRemarks
+    ])
+    const vEl=document.getElementById('po-vendor-address');if(vEl&&vendorAddr)vEl.value=vendorAddr
+    const sEl=document.getElementById('po-shipto');if(sEl&&shipToAddr)sEl.value=shipToAddr
+  }catch{}
   __poAutofillVendorFields({force:false})
   const key=String(pick(row,['OrderNo','OrderNumber','PO','PurchaseOrderNo','DocumentNo'])||'')
   __poCurrentKey=key||('__new__'+Date.now())
-  if(!__poItemMap.has(__poCurrentKey))__poItemMap.set(__poCurrentKey,[])
+  if(Array.isArray(itemsFromDb)&&itemsFromDb.length){
+    __poItemMap.set(__poCurrentKey,itemsFromDb)
+  }else{
+    if(!__poItemMap.has(__poCurrentKey))__poItemMap.set(__poCurrentKey,[])
+  }
   renderItems()
   __syncPOAdvancedFromMain()
   __wirePOAdvancedMirrors()
@@ -2146,7 +2184,7 @@ async function initPurchaseOrderPage(){
     ;['po-q-num'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('input',scheduleFilterPO)})
     const ref=document.getElementById('po-refresh');if(ref)ref.addEventListener('click',async()=>{__poLoaded=false;await initPurchaseOrderPage()})
     const statusSel=document.getElementById('po-q-status');const vendorSel=document.getElementById('po-q-vendor')
-    if(statusSel){const set=new Set();__poRows.forEach(r=>{const v=String(pick(r,['Status'])||'').trim();if(v)set.add(v)});[...set].sort().forEach(v=>{const opt=document.createElement('option');opt.value=v.toLowerCase();opt.textContent=v;statusSel.appendChild(opt)});statusSel.addEventListener('change',scheduleFilterPO)}
+    if(statusSel){const set=new Set();__poRows.forEach(r=>{const v=String(pick(r,['Status','OrderStatus'])||'').trim();if(v)set.add(v)});[...set].sort().forEach(v=>{const opt=document.createElement('option');opt.value=v.toLowerCase();opt.textContent=v;statusSel.appendChild(opt)});statusSel.addEventListener('change',scheduleFilterPO)}
     if(vendorSel){const set=new Set();__poRows.forEach(r=>{const v=String(pick(r,['Vendor','VendorName','Supplier','Company','Name'])||'').trim();if(v)set.add(v)});[...set].sort().forEach(v=>{const opt=document.createElement('option');opt.value=v.toLowerCase();opt.textContent=v;vendorSel.appendChild(opt)});vendorSel.addEventListener('change',scheduleFilterPO)}
     document.querySelectorAll('#section-purchase-order .vendor-tabs.tabs-bottom .tab').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('#section-purchase-order .vendor-tabs.tabs-bottom .tab').forEach(b=>b.classList.toggle('active',b===btn));document.querySelectorAll('#section-purchase-order .vendor-tabpanes>.tabpane').forEach(p=>p.classList.toggle('active',p.id==='po-tab-'+btn.dataset.tab))})})
     const advTabs=document.querySelectorAll('#po-adv-tabs .tab')
@@ -2169,6 +2207,10 @@ async function initPurchaseOrderPage(){
     try{await __refreshSharedDatalists()}catch{}
     __bindPOPrintButton()
     filterPO()
+    try{
+      const itemsHost=document.getElementById('po-items')
+      if(itemsHost && !itemsHost.children.length)__poCreateNew()
+    }catch{}
     renderPOAdvOrderItems()
     renderPOAdvReceiveItems()
     renderPOAdvReturnItems()
