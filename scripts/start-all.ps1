@@ -86,31 +86,21 @@ if($AllowDB){ Ensure-FirewallRule -name "SPUDS IMS DB $DbPort" -port $DbPort }
 if(-not (Test-IsAdmin)){
   Write-Warning "Firewall rules may not be added without Administrator rights. If remote access fails, run Start-IMS.cmd as Administrator."
 }
-function Ensure-AutoBackupTasks($rootPath,[string]$dbPort){
+function Remove-AutoBackupTask{
   try{
     $taskName = "SPUDS IMS Auto Backup"
-    $script = Join-Path $rootPath "scripts\backup-db.ps1"
-    if(-not (Test-Path $script)){ return }
-    $outDir = Join-Path $rootPath "backups"
-    $userId = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $args = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -OutDir `"$outDir`" -DbPort $dbPort -Compress"
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $args -WorkingDirectory $rootPath
-    $t1 = New-ScheduledTaskTrigger -Daily -At 12:00
-    $t2 = New-ScheduledTaskTrigger -Daily -At 18:00
-    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-    $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
-    $task = New-ScheduledTask -Action $action -Trigger @($t1,$t2) -Settings $settings -Principal $principal
     try{
       $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-      if($existing){ Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null }
+      if($existing){
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        Write-Host ("Removed scheduled task: {0}" -f $taskName)
+      }
     }catch{}
-    Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
-    Write-Host ("Auto backup scheduled: {0} (12:00 and 18:00 daily) -> {1}" -f $taskName,$outDir)
   }catch{
-    Write-Warning ("Could not set auto backup schedule: {0}" -f $_)
+    Write-Warning ("Could not remove scheduled task: {0}" -f $_)
   }
 }
-Ensure-AutoBackupTasks $root $DbPort
+Remove-AutoBackupTask
 function Find-MariaDbClient([string]$rootPath){
   $candidates = @()
   $candidates += (Join-Path $rootPath "mariadb\bin\mariadb.exe")
