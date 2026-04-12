@@ -346,8 +346,20 @@ if($CreateInstaller){
     
     # Copy installer script
     $installerScript = Join-Path $root "scripts\install-spuds-ims.ps1"
-    if(Test-Path $installerScript){
+    if(Test-Path $installerScript) {
       Copy-Item -Force -LiteralPath $installerScript -Destination (Join-Path $installerBundle "install-spuds-ims.ps1")
+    }
+    
+    # Copy uninstaller script to installer bundle
+    $uninstallerScript = Join-Path $root "scripts\uninstall-spuds-ims.ps1"
+    if(Test-Path $uninstallerScript) {
+      Copy-Item -Force -LiteralPath $uninstallerScript -Destination (Join-Path $installerBundle "uninstall-spuds-ims.ps1")
+    }
+
+    # Copy uninstaller batch to installer bundle
+    $uninstallerBat = Join-Path $root "scripts\uninstall.bat"
+    if(Test-Path $uninstallerBat) {
+      Copy-Item -Force -LiteralPath $uninstallerBat -Destination (Join-Path $installerBundle "uninstall.bat")
     }
     
     # Create installation instructions
@@ -378,12 +390,26 @@ For automated deployment, run PowerShell as Administrator and execute:
 ```
 
 ## Post-Installation
-- Application URL: http://localhost:3201
+- Application URL: http://localhost:3200
 - Database Port: 3307
+- Shortcuts: Created on Desktop and Start Menu (including Uninstaller)
 - Start scripts: quick-start.bat, start-spuds-ims.bat, start-database.bat
 
 ## Support
 Installation log: %TEMP%\spuds-ims-install.log
+
+## Uninstallation
+To uninstall, run `uninstall-spuds-ims.ps1` from the installation directory with PowerShell.
+```powershell
+# Standard uninstall (will prompt to remove data)
+.\uninstall-spuds-ims.ps1
+
+# Force remove everything (including database)
+.\uninstall-spuds-ims.ps1 -RemoveData
+
+# Uninstall but keep database and backups
+.\uninstall-spuds-ims.ps1 -KeepData
+```
 "@
     Set-Content -Path (Join-Path $installerBundle "README-INSTALL.txt") -Value $instructions -Encoding UTF8
     
@@ -408,14 +434,15 @@ pause
       commit = $sha
       builtAt = (Get-Date).ToString("s")
       deployZip = $deployZipName
-      includes = @("install-spuds-ims.ps1", "README-INSTALL.txt", "install.bat")
+      includes = @("install-spuds-ims.ps1", "uninstall-spuds-ims.ps1", "uninstall.bat", "README-INSTALL.txt", "install.bat")
       features = @(
         "Silent installation support",
         "Portable Node.js and MariaDB",
         "Desktop shortcuts",
         "PATH integration",
         "Custom installation paths",
-        "Automated database setup"
+        "Automated database setup",
+        "Clean uninstaller with -KeepData support"
       )
     }
     $installerMetaPath = Join-Path $installerBundle "installer-info.json"

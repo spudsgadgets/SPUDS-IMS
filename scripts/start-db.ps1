@@ -89,6 +89,14 @@ skip-name-resolve
 max_allowed_packet=64M
 sql_mode=
 
+# Performance Tuning
+innodb_buffer_pool_size=128M
+innodb_log_file_size=32M
+innodb_flush_log_at_trx_commit=2
+query_cache_type=1
+query_cache_size=16M
+max_connections=50
+
 [client]
 port=$Port
 "@ | Set-Content -Path $myIni -Encoding ascii
@@ -119,10 +127,9 @@ $tmpDir = [System.IO.Path]::GetTempPath()
 $logDir = Join-Path $root "logs"
 try{ if(-not (Test-Path $logDir)){ New-Item -ItemType Directory -Path $logDir -Force | Out-Null } }catch{}
 $errLog = Join-Path $logDir ("mariadb-{0}.err.log" -f $Port)
-$ddlLog = Join-Path $logDir ("ddl_recovery-{0}.log" -f $Port)
 Write-Host "Starting MariaDB from $mysqld with $myIni on port $Port"
-$args = @("--defaults-file=$myIni","--basedir=$mariaRoot","--datadir=$dataDir","--port=$Port","--bind-address=127.0.0.1","--tmpdir=$tmpDir","--log-error=$errLog","--log-ddl-recovery=$ddlLog")
-$proc = Start-Process -FilePath $mysqld -WorkingDirectory $dataDir -ArgumentList $args -WindowStyle Hidden -PassThru
+$args = @("--defaults-file=$myIni","--basedir=$mariaRoot","--datadir=$dataDir","--port=$Port","--bind-address=127.0.0.1","--tmpdir=$tmpDir","--log-error=$errLog")
+$proc = Start-Process -FilePath $mysqld -ArgumentList $args -WindowStyle Hidden -PassThru
 $ok = $false
 for($i=0; $i -lt 300; $i++){
   if(Test-PortReady "127.0.0.1" ([int]$Port)){ $ok = $true; break }

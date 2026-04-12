@@ -1,6 +1,6 @@
 param(
   [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "SPUDS-IMS"),
-  [int]$Port = 3201,
+  [int]$Port = 3200,
   [int]$DbPort = 3307,
   [switch]$Silent,
   [switch]$NoMariaDB,
@@ -330,6 +330,15 @@ function Create-Shortcuts {
     $shortcut.WorkingDirectory = $InstallDir
     $shortcut.Description = "SPUDS IMS - Inventory Management System"
     $shortcut.Save()
+
+    # Desktop Uninstaller shortcut (pointing to uninstall.bat)
+    $uninstallDesktopShortcut = Join-Path $desktopPath "Uninstall SPUDS IMS.lnk"
+    $shortcut = $WshShell.CreateShortcut($uninstallDesktopShortcut)
+    $shortcut.TargetPath = Join-Path $InstallDir "uninstall.bat"
+    $shortcut.WorkingDirectory = $InstallDir
+    $shortcut.Description = "Uninstall SPUDS IMS"
+    $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,31"
+    $shortcut.Save()
     
     # Start menu shortcut
     $startMenuDir = Join-Path $programsPath "SPUDS IMS"
@@ -340,6 +349,15 @@ function Create-Shortcuts {
     $shortcut.TargetPath = Join-Path $InstallDir "quick-start.bat"
     $shortcut.WorkingDirectory = $InstallDir
     $shortcut.Description = "SPUDS IMS - Inventory Management System"
+    $shortcut.Save()
+
+    # Uninstaller shortcut (pointing to uninstall.bat)
+    $uninstallShortcut = Join-Path $startMenuDir "Uninstall SPUDS IMS.lnk"
+    $shortcut = $WshShell.CreateShortcut($uninstallShortcut)
+    $shortcut.TargetPath = Join-Path $InstallDir "uninstall.bat"
+    $shortcut.WorkingDirectory = $InstallDir
+    $shortcut.Description = "Uninstall SPUDS IMS"
+    $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,31"
     $shortcut.Save()
     
     Write-Log "Shortcuts created successfully." "SUCCESS"
@@ -401,6 +419,20 @@ function Install-Application {
     }
     
     Write-Log "Application files installed successfully." "SUCCESS"
+    
+    # Copy uninstaller to installation directory
+    $uninstallerSource = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "uninstall-spuds-ims.ps1"
+    if(Test-Path $uninstallerSource) {
+      Copy-Item -Path $uninstallerSource -Destination (Join-Path $InstallDir "uninstall-spuds-ims.ps1") -Force
+      Write-Log "Uninstaller script copied successfully."
+    }
+
+    # Copy uninstall.bat for easy uninstallation
+    $uninstallBatSource = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "uninstall.bat"
+    if(Test-Path $uninstallBatSource) {
+      Copy-Item -Path $uninstallBatSource -Destination (Join-Path $InstallDir "uninstall.bat") -Force
+      Write-Log "Uninstaller batch file copied successfully."
+    }
     
   } catch {
     Write-Log "Failed to install application files: $($_.Exception.Message)" "ERROR"

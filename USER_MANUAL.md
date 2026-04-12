@@ -1,16 +1,22 @@
 # SPUDS IMS — User Manual
 
-Version: 2.0.5
+Version: 2.0.12
 
 ## 1) Access & Startup (Windows)
 
 ### Start
 - Double-click [Start-IMS.cmd](file:///d:/Trae/SPUDS-IMS/Start-IMS.cmd).
-- The app opens in your browser at:
-  - http://localhost:3200/
+- **Single Window**: Both the database and application server launch in a single terminal window.
+- The app opens automatically in your browser at:
+  - http://localhost:3200/ (Default)
 
 ### Stop
 - Double-click [Stop-IMS.cmd](file:///d:/Trae/SPUDS-IMS/Stop-IMS.cmd).
+- This gracefully shuts down both the application server and the database.
+
+### Uninstall
+- To remove the application, use the **SPUDS IMS Uninstall** shortcut or run `uninstall-spuds-ims.ps1` from the installation folder.
+- You will be prompted to choose whether to keep or remove your database/backups.
 
 ### Diagnose / Fix Access
 - Double-click [Diagnose-IMS.cmd](file:///d:/Trae/SPUDS-IMS/Diagnose-IMS.cmd).
@@ -36,7 +42,28 @@ Notes:
 ### Logout
 - Click “Logout” in the top bar (or on the login page).
 
-## 3) Top Bar Controls
+## 3) Quick Add (New Entities)
+You can quickly create new vendors, customers, or products directly from order pages without leaving your current workflow.
+
+### Quick Add Vendor (Purchase Order)
+1. In a **Purchase Order**, type a new vendor name in the **Vendor** field.
+2. Fill in any other details (Contact, Phone, Address, etc.) in the header.
+3. Click **Add Vendor** (next to the vendor input).
+4. The vendor is saved, and the datalist is refreshed.
+
+### Quick Add Customer (Sales Order)
+1. In a **Sales Order**, type a new customer name in the **Customer** field.
+2. Fill in any other details (Contact, Phone, Address, etc.) in the header.
+3. Click **Add Customer**.
+4. The customer is saved, and the datalist is refreshed.
+
+### Quick Add Product (PO / SO)
+1. In a **Purchase Order** or **Sales Order** item row, type a new product name/code.
+2. Fill in the **Description** and **Unit Price** in the row.
+3. Click **Add Product** in the item toolbar (next to Add/Delete Row).
+4. The product is saved, and the item datalist is refreshed.
+
+## 4) Top Bar Controls
 
 - Navigation: Dashboard, Vendor, Purchase Order, Inventory, Sales Order, Customer, Settings.
 - Search: the “SEARCH...” box filters the current section:
@@ -51,7 +78,7 @@ Notes:
 
 Note: most text inputs are automatically converted to UPPERCASE as you type.
 
-## 4) Dashboard
+## 5) Dashboard
 
 Dashboard shows quick counts:
 - Inventory
@@ -59,7 +86,7 @@ Dashboard shows quick counts:
 - Customers
 - Open Orders
 
-## 5) Vendor
+## 6) Vendor
 
 ### Search
 - Use the left-side Search filters (Name, Contact, Phone), then click “Refresh” if needed.
@@ -89,9 +116,9 @@ Dashboard shows quick counts:
 - Click “Import From PO”.
 - This builds a derived vendor list from the Purchase Order data.
 
-Note: Vendor edits are not saved back to the database in the current UI.
+Note: Vendor edits are now saved back to the database in the current UI via the **Quick Add** or **Save** features.
 
-## 6) Purchase Order
+## 7) Purchase Order
 
 ### Search
 - Filter by Order #, Status, Vendor, Date From/To; click “Refresh” to reload data.
@@ -110,6 +137,7 @@ Note: Vendor edits are not saved back to the database in the current UI.
 ### Items
 - “Add Row” adds a line item.
 - “Delete Row” deletes the selected line item.
+- **Add Product**: Use the **Add Product** button in the toolbar to save a new item row to the inventory.
 - Line item fields:
   - **Item**: Your item code/name for the product being purchased.
   - **Description**: Item description shown on the order.
@@ -145,7 +173,7 @@ Note: Purchase Order line items and edits are not saved back to the database in 
 - **Balance (read-only)**: `Total − Paid` (never below 0).
 - **Receive & Pay**: Action button placeholder for workflow; behavior depends on your configuration/version.
 
-## 7) Sales Order
+## 8) Sales Order
 
 ### Search
 - Filter by Order #, Status, Customer, Date From/To; click “Refresh” to reload data.
@@ -164,6 +192,7 @@ Note: Purchase Order line items and edits are not saved back to the database in 
 ### Items
 - “Add Row” adds a line item.
 - “Delete Row” deletes the selected line item.
+- **Add Product**: Use the **Add Product** button in the toolbar to save a new item row to the inventory.
 - Line item fields:
   - **Item**: Your item code/name for the product being sold.
   - **Description**: Item description shown on the order.
@@ -196,7 +225,7 @@ Note: Sales Order line items and edits are not saved back to the database in the
 - **Balance (read-only)**: `Total − Paid` (never below 0).
 - **Complete & Pay**: Action button placeholder for workflow; behavior depends on your configuration/version.
 
-## 8) Customer
+## 9) Customer
 
 ### Search
 - Filter by Name and click “Refresh” if needed.
@@ -231,7 +260,7 @@ Note: Sales Order line items and edits are not saved back to the database in the
 - Click “Save” to store customer extended fields (addresses and extra contact/purchasing fields).
 Note: this saves the extended fields; it does not overwrite the base customer rows imported into the `customer` table/view.
 
-## 9) Inventory (Product)
+## 10) Inventory (Product)
 
 ### Search
 - Filter by Name/Code, Description, Category and click “Refresh” if needed.
@@ -340,7 +369,7 @@ Note: the Inventory Locations grid is not saved back to the database in the curr
   - Quantity is forced to 1 per row.
   - Serial values must be unique.
 
-## 10) Settings
+## 11) Settings
 
 ### Logo
 - Select Logo: choose an image to display in the app header and login page.
@@ -353,7 +382,7 @@ Note: the logo is stored in the browser (local to that PC/browser).
   - Current database (default: `ims`)
   - Archive database (default: `ims_archive`)
 
-Note: The system may also create automatic backups (scheduled task) in the `backups` folder.
+Note: The system may also create automatic backups in the `backups` folder if you choose to run them.
 
 ### Restore Database
 - Click “Restore Database” and choose a .zip backup or a .sql file.

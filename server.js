@@ -81,32 +81,18 @@ async function __startDbIfNeeded({host,port}){
   }
   const dbScript=path.join(__dirname,'scripts','start-db.ps1')
   if(!fs.existsSync(dbScript))throw new Error('start-db.ps1 not found: '+dbScript)
-  global.__dbStartInFlight=(async()=>{
-    const mysqld1=path.join(__dirname,'mariadb','bin','mariadbd.exe')
-    const mysqld2=path.join(__dirname,'mariadb','bin','mysqld.exe')
-    const hasBinaries=fs.existsSync(mysqld1)||fs.existsSync(mysqld2)
-    if(!hasBinaries){
-      const autoSetup=String(process.env.IMS_AUTO_SETUP_DB||'').trim().toLowerCase()
-      const okSetup=autoSetup==='1'||autoSetup==='true'||autoSetup==='yes'||autoSetup==='on'
-      if(!okSetup)throw new Error('MariaDB binaries not found. Run Start-IMS.cmd to install portable MariaDB, or set IMS_AUTO_SETUP_DB=1 to allow auto-setup.')
-      const setupScript=path.join(__dirname,'scripts','setup-portable-mariadb.ps1')
-      if(!fs.existsSync(setupScript))throw new Error('setup-portable-mariadb.ps1 not found: '+setupScript)
-      await new Promise((resolve,reject)=>{
-        execFile('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',setupScript,'-Port',p,'-NoStart'],{cwd:__dirname,windowsHide:true,maxBuffer:1024*1024*40},(e,stdout,stderr)=>{
-          if(e){reject(new Error(String(stderr||stdout||e&&e.message||e)));return}
-          resolve()
-        })
-      })
-    }
-    await new Promise((resolve,reject)=>{
-      execFile('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',dbScript,'-Port',p],{cwd:__dirname,windowsHide:true,maxBuffer:1024*1024*20},(e,stdout,stderr)=>{
-        if(e){reject(new Error(String(stderr||stdout||e&&e.message||e)));return}
-        resolve()
-      })
+  global.__dbStartInFlight=new Promise((resolve,reject)=>{
+    execFile('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',dbScript,'-Port',p],{cwd:__dirname,windowsHide:true,maxBuffer:1024*1024*20},(e,stdout,stderr)=>{
+      if(e){
+        reject(new Error(String(stderr||stdout||e&&e.message||e)))
+        return
+      }
+      __waitForTcp(host,p,60000).then(ok=>{
+        if(!ok)reject(new Error("MariaDB didn't start on "+host+":"+p))
+        else resolve()
+      }).catch(reject)
     })
-    const ok=await __waitForTcp(host,p,120000)
-    if(!ok)throw new Error("MariaDB didn't start on "+host+":"+p)
-  })()
+  })
   try{
     await global.__dbStartInFlight
   }finally{
@@ -375,9 +361,6 @@ const __DEFAULT_DB='SPUDS_IMS_MAIN'
 const __DEFAULT_ARCHIVE_DB='SPUDS_IMS_ARCHIVE'
 const __LEGACY_DB='ims'
 const __LEGACY_ARCHIVE_DB='ims_archive'
-if(!process.env.IMS_ADMIN_PASSWORD && !process.env.IMS_PASSWORD && !process.env.ADMIN_PASSWORD){
-  process.env.IMS_ADMIN_PASSWORD='admin123'
-}
 function __rxEsc(s){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
 function __remapSqlDbNames(sql){
   let s=String(sql||'')
@@ -439,7 +422,7 @@ async function __maybeRenameLegacyDatabase(conn,{fromDb,toDb}){
 }
 async function ensurePool(){
   if(!mysql)throw new Error('mysql2 not installed')
-  const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB,waitForConnections:true,connectionLimit:10,queueLimit:0,connectTimeout:10000,enableKeepAlive:true,keepAliveInitialDelay:0}
+  const cfg={host:process.env.MYSQL_HOST||'127.0.0.1',port:parseInt(process.env.MYSQL_PORT||'3307',10),user:process.env.MYSQL_USER||'root',password:process.env.MYSQL_PASSWORD||'',database:process.env.MYSQL_DATABASE||__DEFAULT_DB,waitForConnections:true,connectionLimit:25,queueLimit:0,connectTimeout:10000,enableKeepAlive:true,keepAliveInitialDelay:0}
   if(!global.__pool)global.__pool=mysql.createPool(cfg)
   try{
     await global.__pool.query('SELECT 1')
@@ -2124,17 +2107,4 @@ async function serveStatic(req,res){
   }catch{notFound(res)}
 }
 const server=http.createServer(async (req,res)=>{try{const u=String(req&&req.url||'');if(u.startsWith('/api/')||u.startsWith('/statement/')){await handleAPI(req,res)}else{await serveStatic(req,res)}}catch(e){json(res,500,{error:String(e&&e.message||e)})}})
-server.listen({port:PORT,host:'::',ipv6Only:false},()=>{
-  try{
-    const host=process.env.MYSQL_HOST||'127.0.0.1'
-    const port=String(parseInt(process.env.MYSQL_PORT||'3307',10)||'3307')
-    if(__isLocalHost(host)){
-      const autoStart=String(process.env.IMS_AUTO_START_DB||'').trim().toLowerCase()
-      const okStart=autoStart===''||autoStart==='1'||autoStart==='true'||autoStart==='yes'||autoStart==='on'
-      if(!okStart)return
-      __startDbIfNeeded({host,port}).catch(e=>{
-        try{console.error('DB auto-start failed:',String(e&&e.message||e))}catch{}
-      })
-    }
-  }catch{}
-})
+server.listen({port:PORT,host:'::',ipv6Only:false},()=>{})

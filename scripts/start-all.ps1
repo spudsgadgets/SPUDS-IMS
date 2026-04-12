@@ -53,8 +53,9 @@ function Test-PortReady($h,$p){
 if(Test-PortReady "127.0.0.1" ([int]$DbPort)){
   Write-Host "MariaDB already running on port $DbPort."
 }else{
-  Write-Host "Starting MariaDB on port $DbPort..."
-  Start-Process -FilePath "powershell" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$dbScript`" -Port $DbPort" -WorkingDirectory $root
+  Write-Host "Starting MariaDB on port $DbPort (Background)..."
+  # Run start-db.ps1 directly in the current session instead of a new process window
+  & $dbScript -Port $DbPort
   for($i=0;$i -lt 150;$i++){
     if(Test-PortReady "127.0.0.1" ([int]$DbPort)){ break }
     Start-Sleep -Milliseconds 200
