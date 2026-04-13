@@ -124,12 +124,20 @@ if($needsInit){
   }
 }
 $tmpDir = [System.IO.Path]::GetTempPath()
+$tmpDir = $tmpDir.TrimEnd('\','/')
 $logDir = Join-Path $root "logs"
 try{ if(-not (Test-Path $logDir)){ New-Item -ItemType Directory -Path $logDir -Force | Out-Null } }catch{}
 $errLog = Join-Path $logDir ("mariadb-{0}.err.log" -f $Port)
+$ddlLog = Join-Path $logDir ("ddl_recovery-{0}.log" -f $Port)
+try{
+  $bp = Join-Path $dataDir "ib_buffer_pool"
+  if(Test-Path $bp){ Remove-Item -Force -LiteralPath $bp -ErrorAction SilentlyContinue }
+  $ibtmp = Join-Path $dataDir "ibtmp1"
+  if(Test-Path $ibtmp){ Remove-Item -Force -LiteralPath $ibtmp -ErrorAction SilentlyContinue }
+}catch{}
 Write-Host "Starting MariaDB from $mysqld with $myIni on port $Port"
-$args = @("--defaults-file=$myIni","--basedir=$mariaRoot","--datadir=$dataDir","--port=$Port","--bind-address=127.0.0.1","--tmpdir=$tmpDir","--log-error=$errLog")
-$proc = Start-Process -FilePath $mysqld -ArgumentList $args -WindowStyle Hidden -PassThru
+$argStr = "--defaults-file=`"$myIni`" --basedir=`"$mariaRoot`" --datadir=`"$dataDir`" --port=$Port --bind-address=127.0.0.1 --tmpdir=`"$tmpDir`" --log-error=`"$errLog`" --log-ddl-recovery=`"$ddlLog`" --console --innodb-buffer-pool-load-at-startup=0 --innodb-buffer-pool-dump-at-shutdown=0"
+$proc = Start-Process -FilePath $mysqld -WorkingDirectory $dataDir -ArgumentList $argStr -WindowStyle Hidden -PassThru
 $ok = $false
 for($i=0; $i -lt 300; $i++){
   if(Test-PortReady "127.0.0.1" ([int]$Port)){ $ok = $true; break }

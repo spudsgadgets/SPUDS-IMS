@@ -14,11 +14,13 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - name: Build deploy ZIP
+      - name: Build deploy + installer ZIPs
         shell: pwsh
-        run: ./scripts/build-deploy.ps1
+        run: ./scripts/build-deploy.ps1 -CreateInstaller
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: releases/SPUDS-IMS-Deploy-*.zip
+          files: |
+            releases/SPUDS-IMS-Deploy-*.zip
+            releases/SPUDS-IMS-Installer-*.zip
           generate_release_notes: true
